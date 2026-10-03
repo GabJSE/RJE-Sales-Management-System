@@ -38,7 +38,7 @@ function App() {
     setActivePage(page);
   };
 
-  return <div className="app-shell"><Sidebar activePage={activePage} onNavigate={navigate} user={user} onLogout={logout} /><main className="main-content"><header className="mobile-header"><span className="brand-mark">R</span><strong>RJE Sales</strong></header>{activePage === "Dashboard" ? <Dashboard /> : activePage === "Products" ? <Products /> : activePage === "Sales" ? <Sales /> : activePage === "Inventory" ? <Inventory /> : activePage === "Reports" ? <Reports /> : activePage === "Users" ? <Users /> : activePage === "Settings" ? <Settings /> : activePage === "Backup" ? <Backup /> : <PlaceholderPage title={activePage} />}</main></div>;
+  return <div className="app-shell"><Sidebar activePage={activePage} onNavigate={navigate} user={user} onLogout={logout} /><main className="main-content"><header className="mobile-header"><img className="mobile-logo" src="/rje-logo.png" alt="RJE Motorparts and Accessories" /><strong>RJE Sales</strong></header>{activePage === "Dashboard" ? <Dashboard /> : activePage === "Products" ? <Products /> : activePage === "Sales" ? <Sales /> : activePage === "Inventory" ? <Inventory /> : activePage === "Reports" ? <Reports /> : activePage === "Users" ? <Users /> : activePage === "Settings" ? <Settings /> : activePage === "Backup" ? <Backup /> : <PlaceholderPage title={activePage} />}</main></div>;
 }
 
 function AuthenticatedApp() {

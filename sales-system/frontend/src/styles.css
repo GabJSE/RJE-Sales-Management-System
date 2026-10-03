@@ -189,6 +189,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .brand { padding: 0 11px 34px; }
 .brand-mark { width: 36px; height: 36px; border-radius: 10px; background: #b5df72; color: #153b24; }
+.brand-logo { display: block; width: 148px; height: 58px; object-fit: contain; object-position: left center; }
 .brand strong { color: #f4faf5; letter-spacing: -.02em; }
 .brand small { color: #8fae9b; }
 .nav-section-label {
@@ -264,6 +265,8 @@ tbody tr:hover { background: #f8fbf9; }
 .login-card { width: min(420px, calc(100% - 32px)); padding: 34px; }
 .login-card h1 { letter-spacing: -.04em; }
 .login-brand { padding: 0 0 30px; }
+.login-logo { display: block; width: 100%; height: 118px; object-fit: contain; border-radius: 10px; background: #101010; }
+.mobile-logo { width: 82px; height: 38px; object-fit: contain; border-radius: 6px; background: #101010; }
 .login-card .primary-button { margin-top: 8px; }
 .transaction-items, .calculation-preview { border-color: var(--line); }
 .items-header { background: var(--brand-soft); color: var(--brand); }

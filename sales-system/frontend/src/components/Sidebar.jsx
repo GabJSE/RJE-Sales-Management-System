@@ -4,7 +4,7 @@ function Sidebar({ activePage, onNavigate, user, onLogout }) {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <span className="brand-mark">R</span>
+        <img className="brand-logo" src="/rje-logo.png" alt="RJE Motorparts and Accessories" />
         <div>
           <strong>RJE Sales</strong>
           <small>Management System</small>
