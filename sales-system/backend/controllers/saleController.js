@@ -3,48 +3,12 @@ import Product from "../models/Product.js";
 import Sale from "../models/Sale.js";
 import InventoryMovement from "../models/InventoryMovement.js";
 
-const validateSaleId = (id) => mongoose.isValidObjectId(id);
-
-const getProductDisplayName = (product) =>
-  product.brand
-    ? `${product.brand} ${product.category || ""} ${product.model || ""}`.replace(/\s+/g, " ").trim()
-    : product.name;
-
-const calculateSale = ({ quantity, sellingPrice, capitalPrice, tiktokFees, withholdingTax }) => {
-  const totalSales = quantity * sellingPrice;
-  const totalCapital = quantity * capitalPrice;
-  const netSales = totalSales - tiktokFees - withholdingTax;
-  const profit = netSales - totalCapital;
-  const profitMargin = netSales === 0 ? 0 : (profit / netSales) * 100;
-
-  return { totalSales, totalCapital, netSales, profit, profitMargin };
-};
-
-const parseSaleInputs = (body, { allowZeroQuantity = false } = {}) => {
-  const quantity = Number(body.quantity);
-  const tiktokFees = Number(body.tiktokFees ?? 0);
-  const withholdingTax = Number(body.withholdingTax ?? 0);
-
-  if (!Number.isInteger(quantity) || quantity < 0 || (!allowZeroQuantity && quantity === 0)) {
-    const error = new Error("Quantity must be a whole number greater than zero.");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (!Number.isFinite(tiktokFees) || tiktokFees < 0) {
-    const error = new Error("TikTok fees cannot be negative.");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (!Number.isFinite(withholdingTax) || withholdingTax < 0) {
-    const error = new Error("Withholding tax cannot be negative.");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  return { quantity, tiktokFees, withholdingTax };
-};
+const validId = (id) => mongoose.isValidObjectId(id);
+const displayName = (product) => product.brand
+  ? `${product.brand} ${product.category || ""} ${product.model || ""}`.replace(/\s+/g, " ").trim()
+  : product.name;
+const error = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
+const round = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 const runTransaction = async (operation) => {
   const session = await mongoose.startSession();
@@ -60,7 +24,7 @@ const runTransaction = async (operation) => {
 const addMovement = (product, type, quantity, previousStock, reason, referenceId, session) =>
   InventoryMovement.create([{
     productId: product._id,
-    productName: getProductDisplayName(product),
+    productName: displayName(product),
     type,
     quantity,
     previousStock,
@@ -69,173 +33,183 @@ const addMovement = (product, type, quantity, previousStock, reason, referenceId
     referenceId,
   }], { session });
 
-export const createSale = async (req, res, next) => {
-  try {
-    const isWithholdingOnly = !req.body.productId;
-    const { quantity, tiktokFees, withholdingTax } = parseSaleInputs(
-      isWithholdingOnly ? { ...req.body, quantity: 0 } : req.body,
-      { allowZeroQuantity: isWithholdingOnly }
+const parseMoney = (value, label) => {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount) || amount < 0) throw error(`${label} cannot be negative.`);
+  return amount;
+};
+
+const generatedOrderId = (date) => {
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(date).replaceAll("-", "");
+  return `RJE-${day}-${Date.now().toString(36).slice(-7).toUpperCase()}`;
+};
+
+const parseLegacyItem = (body) => {
+  if (!body.productId) return [];
+  if (!validId(body.productId)) throw error("Invalid product ID.");
+  const quantity = Number(body.quantity);
+  if (!Number.isInteger(quantity) || quantity <= 0) throw error("Quantity must be a whole number greater than zero.");
+  return [{ productId: body.productId, quantity, ...(body.sellingPrice !== undefined ? { sellingPrice: body.sellingPrice } : {}), ...(body.capitalPrice !== undefined ? { capitalPrice: body.capitalPrice } : {}) }];
+};
+
+const parseItems = (body, existing) => {
+  const rawItems = Array.isArray(body.items) ? body.items : existing?.items?.length ? existing.items : parseLegacyItem(body);
+  const merged = new Map();
+  rawItems.forEach((raw) => {
+    if (!validId(raw.productId)) throw error("Each order item must have a valid product.");
+    const quantity = Number(raw.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0) throw error("Each item quantity must be a positive whole number.");
+    const current = merged.get(String(raw.productId));
+    if (current) current.quantity += quantity;
+    else merged.set(String(raw.productId), { productId: raw.productId, quantity, sellingPrice: raw.sellingPrice, capitalPrice: raw.capitalPrice });
+  });
+  return [...merged.values()];
+};
+
+const allocate = (amount, items) => {
+  const totalSales = items.reduce((sum, item) => sum + item.totalSales, 0);
+  let allocated = 0;
+  return items.map((item, index) => {
+    if (index === items.length - 1) return round(amount - allocated);
+    const value = totalSales === 0 ? 0 : round(amount * item.totalSales / totalSales);
+    allocated += value;
+    return value;
+  });
+};
+
+const buildItems = async (rawItems, session, fee, withholdingTax) => {
+  const products = [];
+  for (const raw of rawItems) {
+    const product = await Product.findById(raw.productId).session(session);
+    if (!product) throw error(`Product not found: ${raw.productId}`, 404);
+    const sellingPrice = raw.sellingPrice === undefined ? product.sellingPrice : parseMoney(raw.sellingPrice, "Selling price");
+    const capitalPrice = raw.capitalPrice === undefined ? product.capitalPrice : parseMoney(raw.capitalPrice, "Capital price");
+    products.push({ product, quantity: raw.quantity, sellingPrice, capitalPrice });
+  }
+  const snapshots = products.map(({ product, quantity, sellingPrice, capitalPrice }) => ({
+    productId: product._id,
+    productName: displayName(product),
+    sku: product.sku,
+    quantity,
+    sellingPrice,
+    capitalPrice,
+    totalSales: round(quantity * sellingPrice),
+    totalCapital: round(quantity * capitalPrice),
+  }));
+  const fees = allocate(fee, snapshots);
+  const taxes = allocate(withholdingTax, snapshots);
+  return snapshots.map((item, index) => ({
+    ...item,
+    allocatedTikTokFee: fees[index],
+    allocatedWithholdingTax: taxes[index],
+    netSales: round(item.totalSales - fees[index] - taxes[index]),
+    profit: round(item.totalSales - fees[index] - taxes[index] - item.totalCapital),
+    product: products[index].product,
+  }));
+};
+
+const totalsFor = (items, tiktokFees, withholdingTax) => {
+  const totalSales = round(items.reduce((sum, item) => sum + item.totalSales, 0));
+  const totalCapital = round(items.reduce((sum, item) => sum + item.totalCapital, 0));
+  const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
+  const netSales = round(totalSales - tiktokFees - withholdingTax);
+  const profit = round(netSales - totalCapital);
+  return { totalSales, totalCapital, totalQuantity, netSales, profit, profitMargin: netSales === 0 ? 0 : round(profit / netSales * 100) };
+};
+
+const adjustStock = async (items, session, direction, reason, referenceId) => {
+  for (const item of items) {
+    const product = await Product.findOneAndUpdate(
+      { _id: item.productId, ...(direction < 0 ? { stock: { $gte: item.quantity } } : {}) },
+      { $inc: { stock: direction * item.quantity } },
+      { new: true, session }
     );
-    if (isWithholdingOnly && withholdingTax <= 0) {
-      return res.status(400).json({ message: "Select a product or enter a withholding tax amount." });
+    if (!product) {
+      const current = await Product.findById(item.productId).session(session);
+      throw error(current ? `Insufficient stock for ${displayName(current)}. Available quantity: ${current.stock}.` : "Product not found.", current ? 400 : 404);
     }
-
-    const date = req.body.date ? new Date(req.body.date) : new Date();
-    if (Number.isNaN(date.getTime())) {
-      return res.status(400).json({ message: "Invalid sale date." });
-    }
-
-    let product = null;
-    if (!isWithholdingOnly) {
-      if (!mongoose.isValidObjectId(req.body.productId)) {
-        return res.status(400).json({ message: "Invalid product ID." });
-      }
-      product = await Product.findById(req.body.productId);
-      if (!product) {
-        return res.status(404).json({ message: "Product not found." });
-      }
-      if (quantity <= 0) {
-        return res.status(400).json({ message: "Quantity must be a whole number greater than zero." });
-      }
-    }
-
-    const sale = await runTransaction(async (session) => {
-      let saleProduct = product;
-      if (saleProduct) {
-        saleProduct = await Product.findOneAndUpdate(
-          { _id: saleProduct._id, stock: { $gte: quantity } },
-          { $inc: { stock: -quantity } },
-          { new: true, session }
-        );
-        if (!saleProduct) {
-          const current = await Product.findById(product._id).session(session);
-          const error = new Error(`Insufficient stock. Available quantity: ${current?.stock ?? 0}.`);
-          error.statusCode = 400;
-          throw error;
-        }
-      }
-      const values = {
-        date,
-        ...(saleProduct ? { productId: saleProduct._id } : {}),
-        productName: saleProduct ? getProductDisplayName(saleProduct) : "Withholding tax",
-        quantity: saleProduct ? quantity : 0,
-        sellingPrice: saleProduct ? saleProduct.sellingPrice : 0,
-        capitalPrice: saleProduct ? saleProduct.capitalPrice : 0,
-        tiktokFees,
-        withholdingTax,
-        ...calculateSale({ quantity: saleProduct ? quantity : 0, sellingPrice: saleProduct ? saleProduct.sellingPrice : 0, capitalPrice: saleProduct ? saleProduct.capitalPrice : 0, tiktokFees, withholdingTax }),
-      };
-      const [createdSale] = await Sale.create([values], { session });
-      if (saleProduct) await addMovement(saleProduct, "SALE", quantity, saleProduct.stock + quantity, "Sale transaction", createdSale._id, session);
-      return createdSale;
-    });
-    res.status(201).json(sale);
-  } catch (error) {
-    next(error);
+    await addMovement(product, direction < 0 ? "SALE" : "SALE_CANCELLATION", item.quantity, product.stock - direction * item.quantity, reason, referenceId, session);
   }
 };
 
-export const getSales = async (_req, res, next) => {
+const toSaleValues = (body, items, date, existing) => {
+  const tiktokFees = parseMoney(body.tiktokFees ?? existing?.tiktokFees, "TikTok fees");
+  const withholdingTax = parseMoney(body.withholdingTax ?? existing?.withholdingTax, "Withholding tax");
+  if (!items.length && withholdingTax <= 0) throw error("Select at least one product or enter a withholding tax amount.");
+  const totals = totalsFor(items, tiktokFees, withholdingTax);
+  return {
+    date,
+    orderId: body.orderId || existing?.orderId || generatedOrderId(date),
+    ...(body.orderReference !== undefined ? { orderReference: String(body.orderReference).trim() } : existing?.orderReference ? { orderReference: existing.orderReference } : {}),
+    ...(body.notes !== undefined ? { notes: String(body.notes).trim() } : existing?.notes ? { notes: existing.notes } : {}),
+    ...(items.length ? { items, totalQuantity: totals.totalQuantity, productName: items.length === 1 ? items[0].productName : "Multi-product order", productId: items.length === 1 ? items[0].productId : undefined, quantity: totals.totalQuantity, sellingPrice: items.length === 1 ? items[0].sellingPrice : 0, capitalPrice: items.length === 1 ? items[0].capitalPrice : 0 } : { productName: "Withholding tax", quantity: 0, sellingPrice: 0, capitalPrice: 0 }),
+    tiktokFees, withholdingTax, ...totals,
+  };
+};
+
+export const createSale = async (req, res, next) => {
   try {
-    const sales = await Sale.find().sort({ date: -1, createdAt: -1 });
-    res.json(sales);
-  } catch (error) {
-    next(error);
-  }
+    const date = req.body.date ? new Date(req.body.date) : new Date();
+    if (Number.isNaN(date.getTime())) return res.status(400).json({ message: "Invalid sale date." });
+    const sale = await runTransaction(async (session) => {
+      const items = await buildItems(parseItems(req.body), session, parseMoney(req.body.tiktokFees, "TikTok fees"), parseMoney(req.body.withholdingTax, "Withholding tax"));
+      const values = toSaleValues(req.body, items, date);
+      const [created] = await Sale.create([{ ...values, items: items.length ? items.map(({ product, ...item }) => item) : undefined }], { session });
+      await adjustStock(items, session, -1, "Sale transaction", created._id);
+      return created;
+    });
+    res.status(201).json(sale);
+  } catch (e) { next(e); }
+};
+
+export const getSales = async (_req, res, next) => {
+  try { res.json(await Sale.find().sort({ date: -1, createdAt: -1 })); } catch (e) { next(e); }
 };
 
 export const getSaleById = async (req, res, next) => {
   try {
-    if (!validateSaleId(req.params.id)) {
-      return res.status(400).json({ message: "Invalid sale ID." });
-    }
+    if (!validId(req.params.id)) return res.status(400).json({ message: "Invalid sale ID." });
     const sale = await Sale.findById(req.params.id);
     if (!sale) return res.status(404).json({ message: "Sale not found." });
     res.json(sale);
-  } catch (error) {
-    next(error);
-  }
+  } catch (e) { next(e); }
 };
 
 export const updateSale = async (req, res, next) => {
   try {
-    if (!validateSaleId(req.params.id)) {
-      return res.status(400).json({ message: "Invalid sale ID." });
-    }
-    const sale = await Sale.findById(req.params.id);
-    if (!sale) return res.status(404).json({ message: "Sale not found." });
-
-    const isWithholdingOnly = !sale.productId;
-    const requestedProductId = req.body.productId || sale.productId;
-    const { quantity, tiktokFees, withholdingTax } = parseSaleInputs({
-      quantity: req.body.quantity ?? sale.quantity,
-      tiktokFees: req.body.tiktokFees ?? sale.tiktokFees,
-      withholdingTax: req.body.withholdingTax ?? sale.withholdingTax ?? 0,
-    }, { allowZeroQuantity: isWithholdingOnly });
-    if (isWithholdingOnly && withholdingTax <= 0) {
-      return res.status(400).json({ message: "Withholding tax must be greater than zero." });
-    }
-    const date = req.body.date ? new Date(req.body.date) : sale.date;
-    if (Number.isNaN(date.getTime())) {
-      return res.status(400).json({ message: "Invalid sale date." });
-    }
-
-    const updatedSale = await runTransaction(async (session) => {
-      if (isWithholdingOnly) {
-        Object.assign(sale, { date, quantity: 0, tiktokFees, withholdingTax, ...calculateSale({ quantity: 0, sellingPrice: 0, capitalPrice: 0, tiktokFees, withholdingTax }) });
-      } else {
-        if (!mongoose.isValidObjectId(requestedProductId)) {
-          return Promise.reject(Object.assign(new Error("Invalid product ID."), { statusCode: 400 }));
-        }
-        const originalProduct = await Product.findOneAndUpdate(
-          { _id: sale.productId, stock: { $gte: 0 } },
-          { $inc: { stock: sale.quantity } },
-          { new: true, session }
-        );
-        if (!originalProduct) return Promise.reject(Object.assign(new Error("Product not found."), { statusCode: 404 }));
-        const updatedProduct = await Product.findOneAndUpdate(
-          { _id: requestedProductId, stock: { $gte: quantity } },
-          { $inc: { stock: -quantity } },
-          { new: true, session }
-        );
-        if (!updatedProduct) {
-          const current = await Product.findById(requestedProductId).session(session);
-          return Promise.reject(Object.assign(new Error(current ? `Insufficient stock. Available quantity: ${current.stock}.` : "Product not found."), { statusCode: current ? 400 : 404 }));
-        }
-        if (sale.quantity !== quantity || String(requestedProductId) !== String(sale.productId)) {
-          await addMovement(originalProduct, "SALE_CANCELLATION", sale.quantity, originalProduct.stock - sale.quantity, "Sale updated", sale._id, session);
-          await addMovement(updatedProduct, "SALE", quantity, updatedProduct.stock + quantity, "Sale quantity updated", sale._id, session);
-        }
-        Object.assign(sale, { date, productId: updatedProduct._id, productName: getProductDisplayName(updatedProduct), quantity, sellingPrice: updatedProduct.sellingPrice, capitalPrice: updatedProduct.capitalPrice, tiktokFees, withholdingTax, ...calculateSale({ quantity, sellingPrice: updatedProduct.sellingPrice, capitalPrice: updatedProduct.capitalPrice, tiktokFees, withholdingTax }) });
-      }
+    if (!validId(req.params.id)) return res.status(400).json({ message: "Invalid sale ID." });
+    const updated = await runTransaction(async (session) => {
+      const sale = await Sale.findById(req.params.id).session(session);
+      if (!sale) throw error("Sale not found.", 404);
+      const oldItems = sale.items?.length ? sale.items : sale.productId ? [{ productId: sale.productId, quantity: sale.quantity }] : [];
+      const rawItems = parseItems(req.body, sale);
+      const fee = parseMoney(req.body.tiktokFees ?? sale.tiktokFees, "TikTok fees");
+      const tax = parseMoney(req.body.withholdingTax ?? sale.withholdingTax, "Withholding tax");
+      const items = await buildItems(rawItems, session, fee, tax);
+      const date = req.body.date ? new Date(req.body.date) : sale.date;
+      if (Number.isNaN(date.getTime())) throw error("Invalid sale date.");
+      await adjustStock(oldItems, session, 1, "Sale updated", sale._id);
+      await adjustStock(items, session, -1, "Sale updated", sale._id);
+      Object.assign(sale, toSaleValues({ ...req.body, tiktokFees: fee, withholdingTax: tax }, items, date, sale), { items: items.length ? items.map(({ product, ...item }) => item) : undefined });
       await sale.save({ session });
       return sale;
     });
-    res.json(updatedSale);
-  } catch (error) {
-    next(error);
-  }
+    res.json(updated);
+  } catch (e) { next(e); }
 };
 
 export const deleteSale = async (req, res, next) => {
   try {
-    if (!validateSaleId(req.params.id)) {
-      return res.status(400).json({ message: "Invalid sale ID." });
-    }
-    const sale = await runTransaction(async (session) => {
-      const existingSale = await Sale.findById(req.params.id).session(session);
-      if (!existingSale) return null;
-      if (existingSale.productId && existingSale.quantity > 0) {
-        const product = await Product.findByIdAndUpdate(existingSale.productId, { $inc: { stock: existingSale.quantity } }, { new: true, session });
-        if (!product) return Promise.reject(Object.assign(new Error("Product not found."), { statusCode: 404 }));
-        await addMovement(product, "SALE_CANCELLATION", existingSale.quantity, product.stock - existingSale.quantity, "Sale deleted", existingSale._id, session);
-      }
-      await Sale.deleteOne({ _id: existingSale._id }, { session });
-      return existingSale;
+    if (!validId(req.params.id)) return res.status(400).json({ message: "Invalid sale ID." });
+    const deleted = await runTransaction(async (session) => {
+      const sale = await Sale.findById(req.params.id).session(session);
+      if (!sale) return null;
+      const items = sale.items?.length ? sale.items : sale.productId ? [{ productId: sale.productId, quantity: sale.quantity }] : [];
+      await adjustStock(items, session, 1, "Sale deleted", sale._id);
+      await Sale.deleteOne({ _id: sale._id }, { session });
+      return sale;
     });
-    if (!sale) return res.status(404).json({ message: "Sale not found." });
+    if (!deleted) return res.status(404).json({ message: "Sale not found." });
     res.json({ message: "Sale deleted successfully." });
-  } catch (error) {
-    next(error);
-  }
+  } catch (e) { next(e); }
 };

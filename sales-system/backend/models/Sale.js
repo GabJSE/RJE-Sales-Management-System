@@ -1,7 +1,30 @@
 import mongoose from "mongoose";
 
+const saleItemSchema = new mongoose.Schema(
+  {
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
+    productName: { type: String, required: true, trim: true },
+    sku: { type: String, trim: true },
+    quantity: { type: Number, required: true, min: 1, validate: Number.isInteger },
+    sellingPrice: { type: Number, required: true, min: 0 },
+    capitalPrice: { type: Number, required: true, min: 0 },
+    totalSales: { type: Number, required: true, min: 0 },
+    totalCapital: { type: Number, required: true, min: 0 },
+    allocatedTikTokFee: { type: Number, required: true, min: 0, default: 0 },
+    allocatedWithholdingTax: { type: Number, required: true, min: 0, default: 0 },
+    netSales: { type: Number, required: true },
+    profit: { type: Number, required: true },
+  },
+  { _id: false }
+);
+
 const saleSchema = new mongoose.Schema(
   {
+    orderId: { type: String, trim: true, unique: true, sparse: true, maxlength: 80 },
+    orderReference: { type: String, trim: true, maxlength: 120 },
+    notes: { type: String, trim: true, maxlength: 500 },
+    items: { type: [saleItemSchema], default: undefined },
+    totalQuantity: { type: Number, min: 0, validate: Number.isInteger },
     date: {
       type: Date,
       required: [true, "Sale date is required."],

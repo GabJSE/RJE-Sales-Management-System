@@ -32,7 +32,21 @@ export const exportSales = async (req, res, next) => {
   try {
     const { start, end } = range(req.query.startDate, req.query.endDate);
     const sales = await Sale.find({ date: { $gte: start, $lt: end } }).sort({ date: 1, createdAt: 1 }).lean();
-    sendCsv(res, `RJE_Sales_${req.query.startDate}_to_${req.query.endDate}.csv`, ["Transaction Date", "Product Name", "Quantity", "Selling Price", "Capital Price", "Total Sales", "Total Capital", "TikTok Fees", "Withholding Tax", "Net Sales", "Profit", "Profit Margin"], sales.map((s) => [phDate(s.date), s.productName, s.quantity, s.sellingPrice, s.capitalPrice, s.totalSales, s.totalCapital, s.tiktokFees, s.withholdingTax || 0, s.netSales, s.profit, s.profitMargin]));
+    const rows = sales.flatMap((s) => {
+      const items = s.items?.length ? s.items : [{
+        productName: s.productName, quantity: s.quantity, sellingPrice: s.sellingPrice,
+        capitalPrice: s.capitalPrice, totalSales: s.totalSales, totalCapital: s.totalCapital,
+        allocatedTikTokFee: s.tiktokFees, allocatedWithholdingTax: s.withholdingTax || 0,
+        netSales: s.netSales, profit: s.profit,
+      }];
+      return items.map((item) => [
+        s.orderId || s._id, phDate(s.date), item.productName, item.sku || "", item.quantity,
+        item.sellingPrice, item.capitalPrice, item.totalSales, item.totalCapital,
+        item.allocatedTikTokFee || 0, item.allocatedWithholdingTax || 0, item.netSales,
+        item.profit, s.totalSales, s.tiktokFees, s.netSales, s.profit,
+      ]);
+    });
+    sendCsv(res, `RJE_Sales_${req.query.startDate}_to_${req.query.endDate}.csv`, ["Order ID", "Transaction Date", "Product Name", "SKU", "Quantity", "Selling Price", "Capital Price", "Line Sales", "Line Capital", "Allocated TikTok Fees", "Allocated Withholding Tax", "Line Net Sales", "Line Profit", "Order Total Sales", "Order TikTok Fees", "Order Net Sales", "Order Profit"], rows);
   } catch (error) { next(error); }
 };
 
@@ -47,17 +61,20 @@ export const exportReports = async (req, res, next) => {
   try {
     const { start, end } = range(req.query.startDate, req.query.endDate);
     const sales = await Sale.find({ date: { $gte: start, $lt: end } }).sort({ date: 1, createdAt: 1 }).lean();
-    const totals = sales.reduce((a, s) => ({ sales: a.sales + s.totalSales, capital: a.capital + s.totalCapital, fees: a.fees + s.tiktokFees, net: a.net + s.netSales, profit: a.profit + s.profit, quantity: a.quantity + s.quantity }), { sales: 0, capital: 0, fees: 0, net: 0, profit: 0, quantity: 0 });
+    const totals = sales.reduce((a, s) => ({ sales: a.sales + s.totalSales, capital: a.capital + s.totalCapital, fees: a.fees + s.tiktokFees, net: a.net + s.netSales, profit: a.profit + s.profit, quantity: a.quantity + (s.totalQuantity ?? s.quantity) }), { sales: 0, capital: 0, fees: 0, net: 0, profit: 0, quantity: 0 });
     const daily = new Map();
     const products = new Map();
     sales.forEach((s) => {
       const day = phDate(s.date);
       const dailyItem = daily.get(day) || { quantity: 0, sales: 0, capital: 0, fees: 0, net: 0, profit: 0 };
-      dailyItem.quantity += s.quantity; dailyItem.sales += s.totalSales; dailyItem.capital += s.totalCapital; dailyItem.fees += s.tiktokFees; dailyItem.net += s.netSales; dailyItem.profit += s.profit; daily.set(day, dailyItem);
-      const product = products.get(s.productName) || { quantity: 0, sales: 0, profit: 0 };
-      product.quantity += s.quantity; product.sales += s.totalSales; product.profit += s.profit; products.set(s.productName, product);
+      dailyItem.quantity += (s.totalQuantity ?? s.quantity); dailyItem.sales += s.totalSales; dailyItem.capital += s.totalCapital; dailyItem.fees += s.tiktokFees; dailyItem.net += s.netSales; dailyItem.profit += s.profit; daily.set(day, dailyItem);
+      const items = s.items?.length ? s.items : [{ productName: s.productName, quantity: s.quantity, totalSales: s.totalSales, profit: s.profit }];
+      items.forEach((item) => {
+        const product = products.get(item.productName) || { quantity: 0, sales: 0, profit: 0 };
+        product.quantity += item.quantity; product.sales += item.totalSales; product.profit += item.profit; products.set(item.productName, product);
+      });
     });
-    const rows = [["Summary"], ["Metric", "Value"], ["Total Sales", totals.sales], ["Total Capital", totals.capital], ["TikTok Fees", totals.fees], ["Net Sales", totals.net], ["Total Profit", totals.profit], ["Quantity Sold", totals.quantity], ["Profit Margin", totals.net === 0 ? 0 : totals.profit / totals.net * 100], [], ["Daily Sales & Profit"], ["Date", "Quantity", "Sales", "Capital", "Fees", "Net Sales", "Profit"], ...Array.from(daily, ([day, value]) => [day, value.quantity, value.sales, value.capital, value.fees, value.net, value.profit]), [], ["Product Performance"], ["Product", "Quantity", "Sales", "Profit", "Margin"], ...Array.from(products, ([name, value]) => [name, value.quantity, value.sales, value.profit, value.sales === 0 ? 0 : value.profit / value.sales * 100]), [], ["Sales"], ["Date", "Product", "Quantity", "Sales", "Capital", "Fees", "Net Sales", "Profit", "Margin"], ...sales.map((s) => [phDate(s.date), s.productName, s.quantity, s.totalSales, s.totalCapital, s.tiktokFees, s.netSales, s.profit, s.profitMargin])];
+    const rows = [["Summary"], ["Metric", "Value"], ["Total Orders", sales.length], ["Total Sales", totals.sales], ["Total Capital", totals.capital], ["TikTok Fees", totals.fees], ["Net Sales", totals.net], ["Total Profit", totals.profit], ["Quantity Sold", totals.quantity], ["Profit Margin", totals.net === 0 ? 0 : totals.profit / totals.net * 100], [], ["Daily Sales & Profit"], ["Date", "Quantity", "Sales", "Capital", "Fees", "Net Sales", "Profit"], ...Array.from(daily, ([day, value]) => [day, value.quantity, value.sales, value.capital, value.fees, value.net, value.profit]), [], ["Product Performance"], ["Product", "Quantity", "Sales", "Profit", "Margin"], ...Array.from(products, ([name, value]) => [name, value.quantity, value.sales, value.profit, value.sales === 0 ? 0 : value.profit / value.sales * 100]), [], ["Sales Items"], ["Order ID", "Date", "Product", "Quantity", "Sales", "Capital", "Fees", "Net Sales", "Profit"], ...sales.flatMap((s) => (s.items?.length ? s.items : [{ productName: s.productName, quantity: s.quantity, totalSales: s.totalSales, totalCapital: s.totalCapital, allocatedTikTokFee: s.tiktokFees, netSales: s.netSales, profit: s.profit }]).map((item) => [s.orderId || s._id, phDate(s.date), item.productName, item.quantity, item.totalSales, item.totalCapital, item.allocatedTikTokFee || 0, item.netSales, item.profit]))];
     sendCsv(res, `RJE_Report_${req.query.startDate}_to_${req.query.endDate}.csv`, ["Report Export"], rows);
   } catch (error) { next(error); }
 };

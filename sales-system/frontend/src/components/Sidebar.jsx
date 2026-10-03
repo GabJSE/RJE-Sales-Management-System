@@ -10,6 +10,7 @@ function Sidebar({ activePage, onNavigate, user, onLogout }) {
           <small>Management System</small>
         </div>
       </div>
+      <p className="nav-section-label">Workspace</p>
       <nav aria-label="Main navigation">
         {navigationItems.map((item) => (
           <button
@@ -22,7 +23,7 @@ function Sidebar({ activePage, onNavigate, user, onLogout }) {
           </button>
         ))}
       </nav>
-      {user && <div className="sidebar-account"><strong>{user.name}</strong><small>{user.role}</small>{user.role === "admin" && <><button className="nav-item" onClick={() => onNavigate("Users")}>Users</button><button className="nav-item" onClick={() => onNavigate("Backup")}>Backup</button></>}<button className="nav-item" onClick={() => onNavigate("Settings")}>Settings</button><button className="nav-item" onClick={onLogout}>Log out</button></div>}
+      {user && <div className="sidebar-account"><div className="account-avatar">{user.name?.charAt(0).toUpperCase() || "U"}</div><div className="account-copy"><strong>{user.name}</strong><small>{user.role}</small></div>{user.role === "admin" && <><button className={`nav-item ${activePage === "Users" ? "active" : ""}`} onClick={() => onNavigate("Users")}>Users</button><button className={`nav-item ${activePage === "Backup" ? "active" : ""}`} onClick={() => onNavigate("Backup")}>Backup</button></>}<button className={`nav-item ${activePage === "Settings" ? "active" : ""}`} onClick={() => onNavigate("Settings")}>Settings</button><button className="nav-item" onClick={onLogout}>Log out</button></div>}
     </aside>
   );
 }

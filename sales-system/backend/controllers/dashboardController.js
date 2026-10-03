@@ -33,13 +33,14 @@ export const getDashboard = async (req, res, next) => {
     const [result, inventory] = await Promise.all([
       Sale.aggregate([
         { $match: match },
+        { $set: { reportItems: { $cond: [{ $gt: [{ $size: { $ifNull: ["$items", []] } }, 0] }, "$items", [{ productId: "$productId", productName: "$productName", quantity: "$quantity", totalSales: "$totalSales", profit: "$profit", netSales: "$netSales" }]] } } },
         {
           $facet: {
-            summary: [{ $group: { _id: null, totalSales: { $sum: "$totalSales" }, totalCapital: { $sum: "$totalCapital" }, totalTiktokFees: { $sum: "$tiktokFees" }, totalWithholdingTax: { $sum: { $ifNull: ["$withholdingTax", 0] } }, netSales: { $sum: "$netSales" }, totalProfit: { $sum: "$profit" }, totalQuantitySold: { $sum: "$quantity" }, transactionCount: { $sum: 1 } } }],
+            summary: [{ $group: { _id: null, totalSales: { $sum: "$totalSales" }, totalCapital: { $sum: "$totalCapital" }, totalTiktokFees: { $sum: "$tiktokFees" }, totalWithholdingTax: { $sum: { $ifNull: ["$withholdingTax", 0] } }, netSales: { $sum: "$netSales" }, totalProfit: { $sum: "$profit" }, totalQuantitySold: { $sum: { $ifNull: ["$totalQuantity", "$quantity"] } }, transactionCount: { $sum: 1 } } }],
             trend: [{ $group: { _id: { $dateToString: { date: "$date", format: "%Y-%m-%d", timezone: "Asia/Manila" } }, totalSales: { $sum: "$totalSales" }, netSales: { $sum: "$netSales" }, totalProfit: { $sum: "$profit" } } }, { $sort: { _id: 1 } }],
-            recentSales: [{ $sort: { date: -1, createdAt: -1 } }, { $limit: 10 }, { $project: { _id: 1, date: 1, productName: 1, quantity: 1, totalSales: 1, netSales: 1, profit: 1 } }],
-            topSellingProducts: [{ $match: { productId: { $exists: true } } }, { $group: { _id: { productId: "$productId", productName: "$productName" }, quantitySold: { $sum: "$quantity" }, totalSales: { $sum: "$totalSales" } } }, { $sort: { quantitySold: -1, totalSales: -1 } }, { $limit: 5 }],
-            mostProfitableProducts: [{ $match: { productId: { $exists: true } } }, { $group: { _id: { productId: "$productId", productName: "$productName" }, totalProfit: { $sum: "$profit" }, netSales: { $sum: "$netSales" }, quantitySold: { $sum: "$quantity" } } }, { $sort: { totalProfit: -1, quantitySold: -1 } }, { $limit: 5 }],
+            recentSales: [{ $sort: { date: -1, createdAt: -1 } }, { $limit: 10 }, { $project: { _id: 1, orderId: 1, date: 1, productName: 1, totalQuantity: 1, quantity: 1, totalSales: 1, netSales: 1, profit: 1 } }],
+            topSellingProducts: [{ $unwind: "$reportItems" }, { $match: { "reportItems.productId": { $exists: true } } }, { $group: { _id: { productId: "$reportItems.productId", productName: "$reportItems.productName" }, quantitySold: { $sum: "$reportItems.quantity" }, totalSales: { $sum: "$reportItems.totalSales" } } }, { $sort: { quantitySold: -1, totalSales: -1 } }, { $limit: 5 }],
+            mostProfitableProducts: [{ $unwind: "$reportItems" }, { $match: { "reportItems.productId": { $exists: true } } }, { $group: { _id: { productId: "$reportItems.productId", productName: "$reportItems.productName" }, totalProfit: { $sum: "$reportItems.profit" }, netSales: { $sum: "$reportItems.netSales" }, quantitySold: { $sum: "$reportItems.quantity" } } }, { $sort: { totalProfit: -1, quantitySold: -1 } }, { $limit: 5 }],
           },
         },
       ]),

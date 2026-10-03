@@ -23,6 +23,22 @@ const getDateRange = (startDate, endDate) => {
 const reportPipeline = (start, endExclusive) => [
   { $match: { date: { $gte: start, $lt: endExclusive } } },
   {
+    $set: {
+      reportItems: {
+        $cond: [
+          { $gt: [{ $size: { $ifNull: ["$items", []] } }, 0] },
+          "$items",
+          [{
+            productId: "$productId", productName: "$productName", quantity: "$quantity",
+            totalSales: "$totalSales", totalCapital: "$totalCapital", profit: "$profit",
+            allocatedTikTokFee: "$tiktokFees", allocatedWithholdingTax: { $ifNull: ["$withholdingTax", 0] },
+            netSales: "$netSales",
+          }],
+        ],
+      },
+    },
+  },
+  {
     $facet: {
       summary: [
         {
@@ -34,7 +50,7 @@ const reportPipeline = (start, endExclusive) => [
             totalWithholdingTax: { $sum: { $ifNull: ["$withholdingTax", 0] } },
             netSales: { $sum: "$netSales" },
             totalProfit: { $sum: "$profit" },
-            totalQuantitySold: { $sum: "$quantity" },
+            totalQuantitySold: { $sum: { $ifNull: ["$totalQuantity", "$quantity"] } },
             transactionCount: { $sum: 1 },
           },
         },
@@ -49,23 +65,24 @@ const reportPipeline = (start, endExclusive) => [
             totalWithholdingTax: { $sum: { $ifNull: ["$withholdingTax", 0] } },
             netSales: { $sum: "$netSales" },
             totalProfit: { $sum: "$profit" },
-            totalQuantitySold: { $sum: "$quantity" },
+            totalQuantitySold: { $sum: { $ifNull: ["$totalQuantity", "$quantity"] } },
           },
         },
         { $sort: { _id: 1 } },
       ],
       products: [
-        { $match: { productId: { $exists: true } } },
+        { $unwind: "$reportItems" },
+        { $match: { "reportItems.productId": { $exists: true } } },
         {
           $group: {
-            _id: { productId: "$productId", productName: "$productName" },
-            totalQuantitySold: { $sum: "$quantity" },
-            totalSales: { $sum: "$totalSales" },
-            totalCapital: { $sum: "$totalCapital" },
-            totalTiktokFees: { $sum: "$tiktokFees" },
-            totalWithholdingTax: { $sum: { $ifNull: ["$withholdingTax", 0] } },
-            netSales: { $sum: "$netSales" },
-            totalProfit: { $sum: "$profit" },
+            _id: { productId: "$reportItems.productId", productName: "$reportItems.productName" },
+            totalQuantitySold: { $sum: "$reportItems.quantity" },
+            totalSales: { $sum: "$reportItems.totalSales" },
+            totalCapital: { $sum: "$reportItems.totalCapital" },
+            totalTiktokFees: { $sum: "$reportItems.allocatedTikTokFee" },
+            totalWithholdingTax: { $sum: "$reportItems.allocatedWithholdingTax" },
+            netSales: { $sum: "$reportItems.netSales" },
+            totalProfit: { $sum: "$reportItems.profit" },
           },
         },
         { $sort: { totalQuantitySold: -1, totalProfit: -1 } },
