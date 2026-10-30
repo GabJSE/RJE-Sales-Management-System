@@ -11,6 +11,12 @@ const productDisplayName = (product) =>
   product.brand
     ? `${product.brand} ${product.category || ""} ${product.model || ""}`.replace(/\s+/g, " ").trim()
     : product.name;
+const productMatchesSearch = (product, search) => {
+  const normalizedSearch = search.trim().toLowerCase();
+  return [productDisplayName(product), product.sku].some((value) =>
+    String(value || "").toLowerCase().includes(normalizedSearch)
+  );
+};
 
 function Sales() {
   const { settings, formatCurrency: peso, formatDate } = useSettings();
@@ -45,9 +51,7 @@ function Sales() {
 
   const selectedProduct = products.find((product) => product._id === form.productId);
   const historicalProduct = editingSale && !selectedProduct ? editingSale : null;
-  const filteredProducts = products.filter((product) =>
-    productDisplayName(product).toLowerCase().includes(productSearch.trim().toLowerCase())
-  );
+  const filteredProducts = products.filter((product) => productMatchesSearch(product, productSearch));
   const sellingPrice = selectedProduct?.sellingPrice ?? historicalProduct?.sellingPrice ?? 0;
   const capitalPrice = selectedProduct?.capitalPrice ?? historicalProduct?.capitalPrice ?? 0;
   const quantity = Number(form.quantity) || 0;
@@ -167,7 +171,26 @@ function Sales() {
 
   return (
     <section>
-      <div className="page-header"><div><p className="eyebrow">Revenue tracking</p><h1>Sales</h1><p className="muted">Record sales and track profitability using historical prices.</p></div><div className="sales-header-actions"><button className="primary-button header-button" type="button" onClick={() => { setEditingSale(null); setForm(emptyForm); setAdditionalItems([]); setProductSearch(""); }}>+ Add sale</button><button className="text-button" type="button" onClick={exportSales} disabled={isExporting}>{isExporting ? "Exporting..." : "Export CSV"}</button><div className="stat-pill"><span>Total sales</span><strong>{sales.length}</strong></div></div></div>
+      <div className="page-header sales-page-header">
+        <div className="sales-page-title">
+          <p className="eyebrow">Revenue tracking</p>
+          <h1>Sales</h1>
+          <p className="muted">Record sales and track profitability using historical prices.</p>
+        </div>
+        <div className="sales-header-actions">
+          <button className="primary-button header-button" type="button" onClick={() => { setEditingSale(null); setForm(emptyForm); setAdditionalItems([]); setProductSearch(""); }}>
+            <span className="header-action-icon" aria-hidden="true">+</span> Add sale
+          </button>
+          <button className="secondary-header-button" type="button" onClick={exportSales} disabled={isExporting}>
+            <span className="header-action-icon" aria-hidden="true">↓</span> {isExporting ? "Exporting..." : "Export CSV"}
+          </button>
+          <div className="stat-pill">
+            <span>Total sales</span>
+            <strong>{sales.length}</strong>
+            <small>{sales.length === 1 ? "recorded transaction" : "recorded transactions"}</small>
+          </div>
+        </div>
+      </div>
       {notice.text && <div className={`notice ${notice.type}`}>{notice.text}<button onClick={() => setNotice({ type: "", text: "" })}>×</button></div>}
       <div className="sales-layout">
         <form className="product-form" onSubmit={handleSubmit}>
@@ -177,7 +200,7 @@ function Sales() {
             <div className="items-header"><strong>Items ({[form.productId, ...additionalItems.map((item) => item.productId)].filter(Boolean).length})</strong><span>{[form.productId, ...additionalItems.map((item) => item.productId)].filter(Boolean).length} product{[form.productId, ...additionalItems.map((item) => item.productId)].filter(Boolean).length === 1 ? "" : "s"} · {quantity + additionalItems.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)} item{quantity + additionalItems.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0) === 1 ? "" : "s"}</span></div>
             <div className="additional-sale-item">
             <div className="form-grid">
-              <label>Product (optional for withholding tax)
+              <label>Product
                 <div className="product-search">
                   <input
                     value={productSearch}
@@ -186,7 +209,7 @@ function Sales() {
                       if (editingSale) return;
                       setForm((current) => ({ ...current, productId: "" }));
                     }}
-                    placeholder="Search product..."
+                    placeholder="Search product or SKU..."
                     disabled={Boolean(editingSale)}
                     aria-label="Search products"
                   />
@@ -201,10 +224,25 @@ function Sales() {
                             setProductSearch(productDisplayName(product));
                           }}
                         >
-                          {productDisplayName(product)}
+                          <strong>{productDisplayName(product)}</strong><small>{product.sku}</small>
                         </button>
                       ))}
                       </div>
+                  )}
+                  {selectedProduct && !editingSale && (
+                    <div className="selected-product-card">
+                      <div className="selected-product-icon">◈</div>
+                      <div>
+                        <strong>{productDisplayName(selectedProduct)}</strong>
+                        <small>{selectedProduct.sku || "No SKU"}</small>
+                      </div>
+                      <div className="selected-product-prices">
+                        <strong>{peso(selectedProduct.sellingPrice)}</strong>
+                        <small>Selling price</small>
+                        <strong>{peso(selectedProduct.capitalPrice)}</strong>
+                        <small>Capital price</small>
+                      </div>
+                    </div>
                   )}
                 </div>
               </label>
@@ -216,7 +254,7 @@ function Sales() {
             const selectedIds = [form.productId, ...additionalItems.map((current) => current.productId)];
             const itemQuantity = Number(item.quantity) || 0;
             const searchResults = products.filter((candidate) => {
-              const matchesSearch = productDisplayName(candidate).toLowerCase().includes((item.search || "").trim().toLowerCase());
+              const matchesSearch = productMatchesSearch(candidate, item.search || "");
               return matchesSearch && (!selectedIds.includes(candidate._id) || candidate._id === item.productId);
             });
             return <div className="additional-sale-item" key={index}>
@@ -226,7 +264,7 @@ function Sales() {
                     <input
                       value={item.search || (product ? productDisplayName(product) : "")}
                       onChange={(event) => setAdditionalItems((current) => current.map((currentItem, itemIndex) => itemIndex === index ? { ...currentItem, search: event.target.value, productId: "" } : currentItem))}
-                      placeholder="Search another product..."
+                      placeholder="Search product or SKU..."
                       aria-label={`Search additional product ${index + 1}`}
                       required
                     />
@@ -243,13 +281,13 @@ function Sales() {
             <button type="button" className="add-product-button" onClick={() => setAdditionalItems((current) => [...current, emptyAdditionalItem()])}>＋ <span>Add Product</span></button>
           </div>
           {form.productId && <div className="price-preview"><span>Selling price<strong>{peso(sellingPrice)}</strong></span><span>Capital price<strong>{peso(capitalPrice)}</strong></span></div>}
-          <div className="form-grid"><label>TikTok fees<input name="tiktokFees" type="number" min="0" step="0.01" value={form.tiktokFees} onChange={handleChange} required disabled={!settings.allowManualTikTokFee} /></label><label>Withholding tax<input name="withholdingTax" type="number" min="0" step="0.01" value={form.withholdingTax} onChange={handleChange} required /></label></div>
+          <div className="form-grid fees-grid"><label>TikTok fees<input name="tiktokFees" type="number" min="0" step="0.01" value={form.tiktokFees} onChange={handleChange} required disabled={!settings.allowManualTikTokFee} /></label><label>Withholding tax<input name="withholdingTax" type="number" min="0" step="0.01" value={form.withholdingTax} onChange={handleChange} required /></label></div>
           <div className="calculation-preview"><div className="summary-heading"><span>▣</span><strong>Calculation Preview</strong></div><div className="summary-grid"><div><span>Total products</span><strong>{[form.productId, ...additionalItems.map((item) => item.productId)].filter(Boolean).length}</strong></div><div><span>Net sales</span><strong>{peso(preview.netSales)}</strong></div><div><span>Total quantity</span><strong>{quantity + additionalItems.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)}</strong></div><div><span>Profit</span><strong>{peso(preview.profit)}</strong></div><div><span>Total sales</span><strong>{peso(preview.totalSales)}</strong></div><div><span>Profit margin</span><strong>{percent(preview.profitMargin)}</strong></div><div><span>Total capital</span><strong>{peso(preview.totalCapital)}</strong></div></div></div>
           <button className="primary-button submit-transaction" type="submit" disabled={isSaving}>{isSaving ? "Saving..." : editingSale ? "Save changes" : "▣  Submit Transaction"}</button>
         </form>
         <div className="panel product-list-panel">
           <div className="list-toolbar">
-            <div><p className="eyebrow">Transaction history</p><h2>All sales</h2></div>
+            <div><p className="eyebrow">Transaction history</p><h2>Transaction history</h2></div>
             <strong className="history-count">{transactionHistory.length} of {sales.length} transactions</strong>
           </div>
           <div className="history-controls">

@@ -12,6 +12,7 @@ import Settings from "./pages/Settings.jsx";
 import { SettingsProvider } from "./context/SettingsContext.jsx";
 import Backup from "./pages/Backup.jsx";
 import "./styles.css";
+import "./design-system.css";
 
 function PlaceholderPage({ title }) {
   return <section className="placeholder"><p className="eyebrow">Coming in the next phase</p><h1>{title}</h1><p className="muted">This page will be connected after the Products feature is complete.</p></section>;
@@ -19,6 +20,7 @@ function PlaceholderPage({ title }) {
 
 function App() {
   const { user, logout } = useAuth();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const pageFromPath = () => {
     const page = { "/dashboard": "Dashboard", "/products": "Products", "/sales": "Sales", "/inventory": "Inventory", "/reports": "Reports", "/users": "Users", "/settings": "Settings", "/backup": "Backup" }[window.location.pathname];
     return page || "Dashboard";
@@ -38,7 +40,7 @@ function App() {
     setActivePage(page);
   };
 
-  return <div className="app-shell"><Sidebar activePage={activePage} onNavigate={navigate} user={user} onLogout={logout} /><main className="main-content"><header className="mobile-header"><img className="mobile-logo" src="/rje-logo.png" alt="RJE Motorparts and Accessories" /><strong>RJE Sales</strong></header>{activePage === "Dashboard" ? <Dashboard /> : activePage === "Products" ? <Products /> : activePage === "Sales" ? <Sales /> : activePage === "Inventory" ? <Inventory /> : activePage === "Reports" ? <Reports /> : activePage === "Users" ? <Users /> : activePage === "Settings" ? <Settings /> : activePage === "Backup" ? <Backup /> : <PlaceholderPage title={activePage} />}</main></div>;
+  return <div className="app-shell"><Sidebar activePage={activePage} onNavigate={navigate} user={user} onLogout={logout} isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} /><main className="main-content"><header className="mobile-header"><button className="menu-button" type="button" aria-label="Open navigation menu" aria-expanded={isMenuOpen} onClick={() => setIsMenuOpen(true)}>☰</button><img className="mobile-logo" src="/rje-logo.png" alt="RJE Motorparts and Accessories" /><strong>RJE Sales</strong></header>{activePage === "Dashboard" ? <Dashboard /> : activePage === "Products" ? <Products /> : activePage === "Sales" ? <Sales /> : activePage === "Inventory" ? <Inventory /> : activePage === "Reports" ? <Reports /> : activePage === "Users" ? <Users /> : activePage === "Settings" ? <Settings /> : activePage === "Backup" ? <Backup /> : <PlaceholderPage title={activePage} />}</main></div>;
 }
 
 function AuthenticatedApp() {

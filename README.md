@@ -232,6 +232,56 @@ Open the application in your browser:
 http://localhost:5173
 ```
 
+### Quick Start on Windows
+
+After installing the backend and frontend dependencies, double-click
+`start-rje-system.bat` in the project root. The script starts both development
+servers in separate terminal windows and opens the application at
+`http://localhost:5173`.
+
+### Mobile and LAN access
+
+The Vite development server listens on the local network. Connect the phone and
+computer to the same Wi-Fi network, start the backend and frontend, then open
+the computer's LAN address with port `5173` on the phone, for example:
+
+```text
+http://192.168.1.74:5173
+```
+
+Allow Node.js through Windows Firewall on private networks if the page cannot be
+opened. The phone must not use a guest Wi-Fi network that isolates devices.
+
+### Environment variables
+
+Frontend variables are read from `frontend/.env`:
+
+```env
+# Leave empty when the frontend and backend share the same origin or when Vite
+# proxies /api during local development.
+VITE_API_BASE_URL=
+VITE_DEV_API_PROXY=http://localhost:5000
+VITE_PORT=5173
+```
+
+For a deployed frontend, set `VITE_API_BASE_URL` to the HTTPS backend URL, such
+as `https://api.example.com`. Do not put MongoDB credentials, JWT secrets, or
+other backend secrets in frontend variables.
+
+Backend variables are documented in `backend/.env.example`:
+
+```env
+PORT=5000
+HOST=0.0.0.0
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/sales_system
+JWT_SECRET=replace-with-a-long-random-secret
+JWT_EXPIRES_IN=1h
+CORS_ORIGINS=https://sales.example.com
+```
+
+`CORS_ORIGINS` accepts a comma-separated list of exact frontend origins. Use
+HTTPS origins in production and never commit a real `.env` file.
+
 ---
 
 ## Business Calculation Logic
@@ -266,6 +316,27 @@ Database records include:
 * Backup Logs
 
 Ensure that your MongoDB Atlas network access and database user permissions are configured correctly.
+
+## Online deployment
+
+1. Create a MongoDB Atlas database user with only the permissions required by
+   this application. Add the backend host's outbound IP address to Atlas
+   Network Access; do not expose MongoDB directly to the browser.
+2. Deploy `sales-system/backend` to a Node.js service. Set the backend
+   variables from `backend/.env.example`, use a long random `JWT_SECRET`, and
+   run `npm start`.
+3. Deploy `sales-system/frontend` to a static hosting service. Set
+   `VITE_API_BASE_URL` to the backend's HTTPS URL before running `npm run build`,
+   then publish the `dist` directory.
+4. Set the backend `CORS_ORIGINS` to the exact deployed frontend origin,
+   including the scheme and port when applicable.
+5. Configure HTTPS on both services. The PWA service worker is registered only
+   in production and caches the application shell, not authenticated API
+   responses or transaction data. The app does not claim offline sales support.
+
+For single-origin hosting, a reverse proxy may serve the frontend and forward
+`/api` to the backend. In that setup, leave `VITE_API_BASE_URL` empty and set
+`CORS_ORIGINS` to the public frontend origin.
 
 ---
 

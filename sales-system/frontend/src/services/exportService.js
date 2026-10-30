@@ -1,9 +1,11 @@
-import { getToken } from "./api.js";
+import { getToken, resolveApiUrl } from "./api.js";
 
-const API_URL = "http://localhost:5000/api/exports";
+const API_URL = "/api/exports";
 
 export const downloadExport = async (path, filename) => {
-  const response = await fetch(`${API_URL}/${path}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+  const response = await fetch(resolveApiUrl(`${API_URL}/${path}`), {
+    headers: { Authorization: `Bearer ${getToken()}` },
+  });
   if (!response.ok) {
     let message = "The export could not be generated.";
     try {

@@ -1,4 +1,4 @@
-const API_URL = "http://localhost:5000/api/dashboard";
+const API_URL = "/api/dashboard";
 import { request } from "./api.js";
 
 export const getDashboard = async (startDate, endDate) => {

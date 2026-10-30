@@ -56,7 +56,7 @@ function Inventory() {
 
   return (
     <section>
-      <div className="page-header"><div><p className="eyebrow">Inventory management</p><h1>Inventory</h1><p className="muted">Track stock levels and inventory movements.</p></div><button className="primary-button report-export-button" onClick={exportInventory} disabled={isExporting}>{isExporting ? "Exporting..." : "Export CSV"}</button></div>
+      <div className="page-header"><div className="standard-page-title"><p className="eyebrow">Inventory management</p><h1>Inventory</h1><p className="muted">Track stock levels and inventory movements.</p></div><button className="secondary-header-button report-export-button" onClick={exportInventory} disabled={isExporting}><span className="header-action-icon" aria-hidden="true">↓</span>{isExporting ? "Exporting..." : "Export CSV"}</button></div>
       {notice.text && <div className={`notice ${notice.type}`}>{notice.text}<button onClick={() => setNotice({ type: "", text: "" })}>×</button></div>}
       <div className="summary-grid">
         {[["Total products", inventory.summary.totalProducts || 0], ["Total stock units", inventory.summary.totalStock || 0], ["Low stock products", inventory.summary.lowStockProducts || 0], ["Out of stock", inventory.summary.outOfStockProducts || 0]].map(([label, value]) => <div className="summary-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}

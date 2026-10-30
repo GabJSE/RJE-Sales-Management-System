@@ -1,5 +1,5 @@
 import { request } from "./api.js";
-const API_URL = "http://localhost:5000/api/inventory";
+const API_URL = "/api/inventory";
 
 export const getInventory = () => request(API_URL);
 export const getInventoryByProduct = (productId) => request(`${API_URL}/${productId}`);

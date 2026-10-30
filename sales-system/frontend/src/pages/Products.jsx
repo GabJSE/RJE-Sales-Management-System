@@ -71,7 +71,7 @@ function Products() {
   return (
     <section>
       <div className="page-header">
-        <div><p className="eyebrow">Inventory management</p><h1>Products</h1><p className="muted">Manage your motorcycle parts catalog and current stock.</p></div><button className="primary-button report-export-button" onClick={exportProducts} disabled={isExporting}>{isExporting ? "Exporting..." : "Export CSV"}</button>
+        <div className="standard-page-title"><p className="eyebrow">Inventory management</p><h1>Products</h1><p className="muted">Manage your motorcycle parts catalog and current stock.</p></div><button className="secondary-header-button report-export-button" onClick={exportProducts} disabled={isExporting}><span className="header-action-icon" aria-hidden="true">↓</span>{isExporting ? "Exporting..." : "Export CSV"}</button>
         <div className="stat-pill"><span>Total products</span><strong>{products.length}</strong></div>
       </div>
       {notice.text && <div className={`notice ${notice.type}`}>{notice.text}<button onClick={() => setNotice({ type: "", text: "" })}>×</button></div>}

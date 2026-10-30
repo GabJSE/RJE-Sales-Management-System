@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { request } from "../services/api.js";
 
-const API_URL = "http://localhost:5000/api/users";
+const API_URL = "/api/users";
 const empty = { name: "", username: "", email: "", role: "staff", password: "" };
 function Users() {
   const [users, setUsers] = useState([]); const [form, setForm] = useState(empty); const [editing, setEditing] = useState(null); const [search, setSearch] = useState(""); const [notice, setNotice] = useState({ type: "", text: "" }); const [isLoading, setIsLoading] = useState(true);
