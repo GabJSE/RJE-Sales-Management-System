@@ -5,7 +5,7 @@ node_modules/
 .env
 .env.*
 !.env.example
-
+sales-system\backend\.env
 # Logs
 *.log
 npm-debug.log*

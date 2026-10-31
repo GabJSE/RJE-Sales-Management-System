@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import InventoryMovement from "../models/InventoryMovement.js";
 import Product from "../models/Product.js";
+import TikTokProductMapping from "../models/TikTokProductMapping.js";
 import { getSettingsDocument } from "./settingsController.js";
 
 const validId = (id) => mongoose.isValidObjectId(id);
@@ -59,6 +60,10 @@ const runInventoryOperation = async (operation, res, next) => {
 export const getInventory = async (_req, res, next) => {
   try {
     const products = await Product.find().sort({ name: 1 }).lean();
+    const mappings = await TikTokProductMapping.find({ mappingStatus: "mapped", rjeProductId: { $ne: null } }).select("rjeProductId stock status sellerSku tiktokSkuId lastSyncedAt").lean();
+    const byProduct = new Map();
+    for (const mapping of mappings) { const key = String(mapping.rjeProductId); byProduct.set(key, [...(byProduct.get(key) || []), mapping]); }
+    const comparedProducts = products.map(product => { const rows = byProduct.get(String(product._id)) || []; const valid = rows.length === 1 && Number.isInteger(rows[0].stock); const tikTokStock = valid ? rows[0].stock : null; return { ...product, tikTokStock, tikTokStatus: rows.length === 1 ? rows[0].status : rows.length > 1 ? "AMBIGUOUS_MAPPING" : null, reservedStock: null, availableStock: product.stock, stockDiscrepancy: tikTokStock == null ? null : product.stock - tikTokStock, tikTokLastSyncedAt: rows.length === 1 ? rows[0].lastSyncedAt : null }; });
     const settings = await getSettingsDocument();
     const lowStockThreshold = settings.lowStockThreshold;
     res.json({
@@ -69,7 +74,7 @@ export const getInventory = async (_req, res, next) => {
         outOfStockProducts: products.filter((product) => product.stock === 0).length,
       },
       lowStockThreshold,
-      products,
+      products: comparedProducts,
     });
   } catch (error) { next(error); }
 };

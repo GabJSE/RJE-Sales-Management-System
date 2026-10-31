@@ -3,8 +3,9 @@ import ProductForm from "../components/ProductForm.jsx";
 import { createProduct, deleteProduct, getProducts, updateProduct } from "../services/productService.js";
 import { useSettings } from "../context/SettingsContext.jsx";
 import { downloadExport } from "../services/exportService.js";
+import TikTokProducts from "./TikTokProducts.jsx";
 
-function Products() {
+function MasterProducts() {
   const { formatCurrency: peso } = useSettings();
   const [products, setProducts] = useState([]);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -90,4 +91,7 @@ function Products() {
   );
 }
 
-export default Products;
+export default function Products() {
+  const [tab, setTab] = useState(() => window.location.pathname === "/tiktok/products" ? "tiktok" : "all");
+  return <section className="module-page"><div className="page-header compact"><div><p className="eyebrow">Catalog & inventory</p><h1>Product Management</h1><p className="muted">Manage the RJE master catalog and its separate TikTok marketplace listings.</p></div></div><div className="module-tabs" role="tablist">{[["all","All Products"],["tiktok","TikTok Listings"],["unmatched","Unmatched Products"]].map(([id,label])=><button role="tab" aria-selected={tab===id} className={tab===id?"active":""} onClick={()=>setTab(id)} key={id}>{label}</button>)}</div>{tab === "all" ? <MasterProducts /> : <TikTokProducts embedded mappingStatus={tab === "unmatched" ? "unmatched" : ""} />}</section>;
+}

@@ -51,6 +51,7 @@ const productSchema = new mongoose.Schema(
         message: "Stock must be a whole number.",
       },
     },
+    archivedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

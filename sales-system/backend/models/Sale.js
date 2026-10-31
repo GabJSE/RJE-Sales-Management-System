@@ -68,4 +68,6 @@ const saleSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+saleSchema.index({ date: -1 });
+
 export default mongoose.model("Sale", saleSchema);

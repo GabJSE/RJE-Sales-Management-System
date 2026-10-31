@@ -1,157 +1,57 @@
 import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, Boxes, CircleDollarSign, Clock3, Package, Percent, RefreshCw, ShoppingBag, TrendingUp, WalletCards } from "lucide-react";
 import { getDashboard } from "../services/dashboardService.js";
 import { useSettings } from "../context/SettingsContext.jsx";
 
-const percent = (value) => `${Number(value || 0).toFixed(2)}%`;
-const localDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-const monthRange = () => {
-  const now = new Date();
-  return { startDate: localDate(new Date(now.getFullYear(), now.getMonth(), 1)), endDate: localDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
-};
-const displayProduct = (item) => item.brand ? `${item.brand} ${item.category || ""} ${item.model || ""}`.replace(/\s+/g, " ").trim() : item.name;
-const goTo = (path) => {
-  window.history.pushState({}, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-};
+const localDate = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+const goTo = path => { window.history.pushState({}, "", path); window.dispatchEvent(new PopStateEvent("popstate")); };
+const rangeFor = value => { const now = new Date(); let start = new Date(now.getFullYear(), now.getMonth(), 1); let end = new Date(now.getFullYear(), now.getMonth() + 1, 0); if (value === "today") start = end = now; if (value === "yesterday") start = end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1); if (value === "last7") start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6); if (value === "last30") start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29); if (value === "lastMonth") { start = new Date(now.getFullYear(), now.getMonth() - 1, 1); end = new Date(now.getFullYear(), now.getMonth(), 0); } return { startDate: localDate(start), endDate: localDate(end) }; };
+const statusLabel = value => String(value || "Unknown").toLowerCase().replaceAll("_", " ").replace(/\b\w/g, letter => letter.toUpperCase());
+const phTime = value => value ? new Date(value).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" }) : "Not synchronized";
 
-function Dashboard() {
-  const { settings, formatCurrency: peso, formatDate } = useSettings();
-  const [range, setRange] = useState(monthRange);
-  const [preset, setPreset] = useState(settings.defaultDashboardPeriod);
-  const [data, setData] = useState(null);
-  const [notice, setNotice] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  const load = async (nextRange = range) => {
-    try {
-      setLoading(true);
-      setData(await getDashboard(nextRange.startDate, nextRange.endDate));
-      setNotice("");
-    } catch (error) {
-      setNotice(error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    const now = new Date();
-    let start = new Date(now.getFullYear(), now.getMonth(), 1);
-    let end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    if (settings.defaultDashboardPeriod === "today") start = end = now;
-    if (settings.defaultDashboardPeriod === "week") {
-      start = new Date(now);
-      start.setDate(now.getDate() - now.getDay());
-      end = new Date(start);
-      end.setDate(start.getDate() + 6);
-    }
-    if (settings.defaultDashboardPeriod === "year") {
-      start = new Date(now.getFullYear(), 0, 1);
-      end = new Date(now.getFullYear(), 11, 31);
-    }
-    const next = { startDate: localDate(start), endDate: localDate(end) };
-    setPreset(settings.defaultDashboardPeriod);
-    setRange(next);
-    load(next);
-  }, [settings.defaultDashboardPeriod]);
-
-  const changePreset = (event) => {
-    const value = event.target.value;
-    setPreset(value);
-    if (value === "custom") return;
-    const now = new Date();
-    let start = new Date(now.getFullYear(), now.getMonth(), 1);
-    let end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    if (value === "today") start = end = now;
-    if (value === "yesterday") start = end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-    if (value === "week") {
-      start = new Date(now);
-      start.setDate(now.getDate() - now.getDay());
-      end = new Date(start);
-      end.setDate(start.getDate() + 6);
-    }
-    if (value === "lastMonth") {
-      start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      end = new Date(now.getFullYear(), now.getMonth(), 0);
-    }
-    if (value === "year") {
-      start = new Date(now.getFullYear(), 0, 1);
-      end = new Date(now.getFullYear(), 11, 31);
-    }
-    if (value === "all") {
-      const all = { startDate: "", endDate: "" };
-      setRange(all);
-      return load(all);
-    }
-    const next = { startDate: localDate(start), endDate: localDate(end) };
-    setRange(next);
-    load(next);
-  };
-
-  const summary = data?.summary || {};
-  const inventory = data?.inventory || {};
-  const salesTrend = data?.salesTrend || [];
-  const profitTrend = data?.profitTrend || [];
-  const maxSales = useMemo(() => Math.max(...salesTrend.map((item) => Math.abs(item.totalSales || 0)), 1), [salesTrend]);
-  const maxProfit = useMemo(() => Math.max(...profitTrend.map((item) => Math.abs(item.profit || 0)), 1), [profitTrend]);
-
-  return (
-    <section className="dashboard-page" aria-labelledby="dashboard-title">
-      <div className="dashboard-hero">
-        <div>
-          <p className="eyebrow">Business overview</p>
-          <h1 id="dashboard-title">Dashboard</h1>
-          <p className="muted">A clear view of today's sales, profit, and stock health.</p>
-        </div>
-        <div className="dashboard-actions">
-          <div className="dashboard-filter" aria-label="Dashboard date range">
-            <label className="sr-only" htmlFor="dashboard-period">Date range</label>
-            <select id="dashboard-period" value={preset} onChange={changePreset}>
-              <option value="today">Today</option><option value="yesterday">Yesterday</option><option value="week">This Week</option>
-              <option value="month">This Month</option><option value="lastMonth">Last Month</option><option value="year">This Year</option>
-              <option value="all">All Time</option><option value="custom">Custom Date Range</option>
-            </select>
-            {preset === "custom" && <>
-              <label className="sr-only" htmlFor="dashboard-start">Start date</label>
-              <input id="dashboard-start" type="date" value={range.startDate} onChange={(event) => setRange({ ...range, startDate: event.target.value })} />
-              <label className="sr-only" htmlFor="dashboard-end">End date</label>
-              <input id="dashboard-end" type="date" value={range.endDate} onChange={(event) => setRange({ ...range, endDate: event.target.value })} />
-              <button className="primary-button header-button" type="button" onClick={() => load()}>Apply</button>
-            </>}
-          </div>
-          <button className="primary-button dashboard-add-sale" type="button" onClick={() => goTo("/sales")}>＋ Add Sale</button>
-        </div>
-      </div>
-
-      {notice && <div className="notice error" role="alert">{notice}<button type="button" onClick={() => load()}>Retry</button></div>}
-      {loading ? <div className="dashboard-state" role="status" aria-live="polite"><span className="loading-dot" />Loading dashboard...</div> : data && (
-        <>
-          <div className="dashboard-kpis" aria-label="Key performance indicators">
-            <div className="dashboard-kpi"><span className="kpi-icon sales-icon">₱</span><div><span>Total Sales</span><strong>{peso(summary.totalSales)}</strong><small>Gross revenue</small></div></div>
-            <div className="dashboard-kpi"><span className="kpi-icon profit-icon">↗</span><div><span>Net Profit</span><strong>{peso(summary.totalProfit)}</strong><small>{percent(summary.profitMargin)} margin</small></div></div>
-            <div className="dashboard-kpi"><span className="kpi-icon transactions-icon">▤</span><div><span>Total Transactions</span><strong>{summary.transactionCount || 0}</strong><small>{summary.totalQuantitySold || 0} items sold</small></div></div>
-            <div className="dashboard-kpi warning"><span className="kpi-icon stock-icon">!</span><div><span>Low Stock Items</span><strong>{inventory.lowStockCount || 0}</strong><small>{inventory.outOfStockCount || 0} out of stock</small></div></div>
-          </div>
-
-          <div className="dashboard-section-heading"><div><p className="eyebrow">Performance</p><h2>Sales and profit trends</h2></div><span className="dashboard-period">{range.startDate && range.endDate ? `${formatDate(range.startDate)} – ${formatDate(range.endDate)}` : "All recorded data"}</span></div>
-          <div className="dashboard-charts dashboard-chart-grid">
-            <div className="panel dashboard-chart-panel"><div className="chart-heading"><div><span className="chart-label">Revenue</span><h3>Sales Performance</h3></div><span className="chart-legend sales-legend">Sales</span></div><div className="bar-chart dashboard-chart" aria-label="Sales performance chart">{salesTrend.length === 0 ? <p className="empty-state">No sales for this period.</p> : salesTrend.map((item) => <div className="bar-column" key={item.date}><div className="bar-value">{peso(item.totalSales)}</div><div className="bar sales-bar" style={{ height: `${Math.max(5, Math.abs(item.totalSales || 0) / maxSales * 145)}px` }} /><small>{item.date.slice(5)}</small></div>)}</div></div>
-            <div className="panel dashboard-chart-panel"><div className="chart-heading"><div><span className="chart-label">Profitability</span><h3>Profit Trend</h3></div><span className="chart-legend profit-legend">Profit</span></div><div className="bar-chart dashboard-chart" aria-label="Profit trend chart">{profitTrend.length === 0 ? <p className="empty-state">No profit data for this period.</p> : profitTrend.map((item) => <div className="bar-column" key={item.date}><div className="bar-value">{peso(item.profit)}</div><div className={`bar ${item.profit < 0 ? "loss-bar" : "profit-bar"}`} style={{ height: `${Math.max(5, Math.abs(item.profit || 0) / maxProfit * 145)}px` }} /><small>{item.date.slice(5)}</small></div>)}</div></div>
-          </div>
-
-          <div className="dashboard-content-grid">
-            <div className="panel dashboard-panel"><div className="list-toolbar"><div><p className="eyebrow">Latest activity</p><h2>Recent Transactions</h2></div><button className="text-button" type="button" onClick={() => goTo("/sales")}>View All →</button></div>{data.recentSales?.length ? <div className="table-wrapper dashboard-table-wrapper"><table><thead><tr><th>Date</th><th>Product</th><th>Qty</th><th>Total Sales</th><th>Profit</th></tr></thead><tbody>{data.recentSales.map((sale) => <tr key={sale._id}><td>{formatDate(sale.date)}</td><td><strong>{sale.productName}</strong></td><td>{sale.quantity}</td><td>{peso(sale.totalSales)}</td><td className={sale.profit < 0 ? "negative-value" : "positive-value"}>{peso(sale.profit)}</td></tr>)}</tbody></table></div> : <p className="empty-state">No transactions recorded yet.</p>}</div>
-            <div className="panel dashboard-panel"><div className="list-toolbar"><div><p className="eyebrow">Product performance</p><h2>Top-Selling Products</h2></div><button className="text-button" type="button" onClick={() => goTo("/reports")}>Reports →</button></div>{data.topSellingProducts?.length ? <ol className="ranked-list">{data.topSellingProducts.slice(0, 5).map((item, index) => <li key={`${item.productId}-${item.productName}`}><span className="rank-number">{index + 1}</span><div><strong>{item.productName}</strong><span>{item.quantitySold} sold</span></div><b>{peso(item.totalSales)}</b></li>)}</ol> : <p className="empty-state">No product sales yet.</p>}</div>
-          </div>
-
-          <div className="dashboard-bottom-grid">
-            <div className="panel dashboard-panel"><div className="list-toolbar"><div><p className="eyebrow">Inventory overview</p><h2>Stock Health</h2></div><button className="text-button" type="button" onClick={() => goTo("/inventory")}>Inventory →</button></div><div className="inventory-overview"><div><span>Total Products</span><strong>{inventory.totalProducts || 0}</strong></div><div><span>Total Stock</span><strong>{inventory.totalStock || 0}</strong></div><div className="warning-stat"><span>Low Stock</span><strong>{inventory.lowStockCount || 0}</strong></div><div className="danger-stat"><span>Out of Stock</span><strong>{inventory.outOfStockCount || 0}</strong></div></div><h3 className="subsection-title">Low Stock Alerts</h3>{inventory.lowStockProducts?.length ? <ul className="low-stock-list">{inventory.lowStockProducts.slice(0, 5).map((item) => <li key={item._id}><strong>{displayProduct(item)}</strong><span>{item.stock} left</span></li>)}</ul> : <p className="muted">All products are sufficiently stocked.</p>}</div>
-            <div className="panel dashboard-panel"><div className="list-toolbar"><div><p className="eyebrow">Profit performance</p><h2>Most Profitable Products</h2></div><button className="text-button" type="button" onClick={() => goTo("/reports")}>View Reports →</button></div>{data.mostProfitableProducts?.length ? <ol className="ranked-list profitable-list">{data.mostProfitableProducts.slice(0, 5).map((item, index) => <li key={`${item.productId}-${item.productName}`}><span className="rank-number">{index + 1}</span><div><strong>{item.productName}</strong><span>{item.quantitySold} sold · {percent(item.profitMargin)}</span></div><b className="positive-value">{peso(item.totalProfit)}</b></li>)}</ol> : <p className="empty-state">No profit data yet.</p>}</div>
-          </div>
-        </>
-      )}
-    </section>
-  );
+function Comparison({ value, points = false }) {
+  if (value == null || !Number.isFinite(Number(value))) return <span className="db-comparison neutral">No prior data</span>;
+  const positive = Number(value) >= 0; const Icon = positive ? ArrowUpRight : ArrowDownRight;
+  return <span className={`db-comparison ${positive ? "positive" : "negative"}`}><Icon size={13}/>{Math.abs(Number(value)).toFixed(1)}{points ? " pts" : "%"}</span>;
 }
 
-export default Dashboard;
+function Kpi({ icon: Icon, label, value, change, note, points }) {
+  return <article className="db-kpi"><span className="db-kpi-icon"><Icon size={20}/></span><div><span>{label}</span><strong>{value}</strong><div><Comparison value={change} points={points}/><small>{note}</small></div></div></article>;
+}
+
+function TrendChart({ rows, peso }) {
+  const [hovered, setHovered] = useState(null); const width = 760; const height = 240; const pad = 34;
+  const series = [{ key: "manualRevenue", label: "Manual revenue", color: "#5264dc" }, { key: "tikTokRevenue", label: "TikTok settlement", color: "#16a36a" }, { key: "totalRevenue", label: "Total realized", color: "#14204b" }, { key: "netProfit", label: "Confirmed profit", color: "#e18b2d" }];
+  const values = rows.flatMap(row => series.map(item => Number(row[item.key] || 0))); const min = Math.min(0, ...values); const max = Math.max(1, ...values); const x = index => pad + index * ((width - pad * 2) / Math.max(rows.length - 1, 1)); const y = value => height - pad - (Number(value || 0) - min) / (max - min || 1) * (height - pad * 2);
+  if (!rows.length) return <div className="db-empty">No compatible revenue or profit records for this period.</div>;
+  return <div className="db-chart"><div className="db-chart-legend">{series.map(item => <span key={item.key}><i style={{ background: item.color }}/>{item.label}</span>)}</div><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Revenue and confirmed profit trend">{[0,.25,.5,.75,1].map(step => <line key={step} x1={pad} x2={width-pad} y1={pad+step*(height-pad*2)} y2={pad+step*(height-pad*2)} className="db-grid-line"/>)}{series.map(item => <polyline key={item.key} fill="none" stroke={item.color} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={rows.map((row,index) => `${x(index)},${y(row[item.key])}`).join(" ")}/>)}{rows.map((row,index) => <g key={row.date} onMouseEnter={() => setHovered({ row, index })} onMouseLeave={() => setHovered(null)}><rect x={x(index)-Math.max(8,(width-pad*2)/Math.max(rows.length,1)/2)} y={0} width={Math.max(16,(width-pad*2)/Math.max(rows.length,1))} height={height} fill="transparent"/><circle cx={x(index)} cy={y(row.totalRevenue)} r="4" fill="#14204b"/></g>)}</svg>{hovered && <div className="db-chart-tooltip" style={{ left: `${hovered.index / Math.max(rows.length - 1, 1) * 82 + 9}%` }}><strong>{hovered.row.label || hovered.row.date}</strong>{series.map(item => <span key={item.key}>{item.label}: {peso(hovered.row[item.key])}</span>)}</div>}<div className="db-axis-labels"><span>{rows[0]?.label || rows[0]?.date}</span><span>{rows.at(-1)?.label || rows.at(-1)?.date}</span></div></div>;
+}
+
+function aggregateTrend(rows, mode) {
+  const groups = new Map();
+  for (const row of rows) { const date = new Date(`${row.date}T00:00:00+08:00`); let key = row.date; if (mode === "week") { const monday = new Date(date); monday.setDate(date.getDate() - ((date.getDay() + 6) % 7)); key = localDate(monday); } if (mode === "month") key = row.date.slice(0, 7); const item = groups.get(key) || { date: key, label: mode === "month" ? key : key.slice(5), manualRevenue: 0, tikTokRevenue: 0, totalRevenue: 0, netProfit: 0 }; for (const field of ["manualRevenue","tikTokRevenue","totalRevenue","netProfit"]) item[field] += Number(row[field] || 0); groups.set(key, item); }
+  return [...groups.values()];
+}
+
+export default function Dashboard() {
+  const { settings, formatCurrency: peso } = useSettings(); const defaultPreset = ["today","month"].includes(settings.defaultDashboardPeriod) ? settings.defaultDashboardPeriod : settings.defaultDashboardPeriod === "week" ? "last7" : "month";
+  const [preset, setPreset] = useState(defaultPreset); const [range, setRange] = useState(() => rangeFor(defaultPreset)); const [data, setData] = useState(null); const [notice, setNotice] = useState(""); const [loading, setLoading] = useState(true); const [aggregation, setAggregation] = useState("day"); const [productSort, setProductSort] = useState("units");
+  const load = async (next = range) => { setLoading(true); try { setData(await getDashboard(next.startDate, next.endDate)); setNotice(""); } catch (error) { setNotice(error.message); } finally { setLoading(false); } };
+  useEffect(() => { const next = rangeFor(defaultPreset); setPreset(defaultPreset); setRange(next); load(next); }, [settings.defaultDashboardPeriod]);
+  const changePreset = event => { const value = event.target.value; setPreset(value); if (value !== "custom") { const next = rangeFor(value); setRange(next); load(next); } };
+  const trend = useMemo(() => aggregateTrend(data?.trend || [], aggregation), [data?.trend, aggregation]);
+  const products = useMemo(() => [...(data?.topProducts || [])].sort((a,b) => Number(b[productSort] ?? -Infinity) - Number(a[productSort] ?? -Infinity)).slice(0,8), [data?.topProducts, productSort]);
+  const kpis = data?.kpis || {}; const channels = data?.channels || {}; const inventory = data?.inventory || {}; const finance = data?.finance || {};
+
+  return <section className="dashboard-page db-page" aria-labelledby="dashboard-title">
+    <header className="db-header"><div><p className="eyebrow">Dashboard</p><h1 id="dashboard-title">Business Overview</h1><p className="muted">Monitor your sales, profitability, inventory, and marketplace performance.</p></div><div className="db-header-controls"><div className="db-filter"><label htmlFor="db-period">Date range</label><select id="db-period" value={preset} onChange={changePreset}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="last7">Last 7 Days</option><option value="last30">Last 30 Days</option><option value="month">This Month</option><option value="lastMonth">Last Month</option><option value="custom">Custom Date Range</option></select>{preset === "custom" && <><input aria-label="Start date" type="date" value={range.startDate} max={range.endDate} onChange={event => setRange({...range,startDate:event.target.value})}/><input aria-label="End date" type="date" value={range.endDate} min={range.startDate} onChange={event => setRange({...range,endDate:event.target.value})}/><button onClick={() => load()}>Apply</button></>}</div><button className="db-refresh" onClick={() => load()} disabled={loading} aria-label="Refresh dashboard"><RefreshCw size={17} className={loading ? "spinning" : ""}/>Refresh</button><small>Updated {phTime(data?.generatedAt)}</small></div></header>
+    {notice && <div className="notice error" role="alert">{notice}<button onClick={() => load()}>Retry</button></div>}
+    {loading && !data ? <div className="db-skeleton-grid" role="status" aria-label="Loading dashboard">{Array.from({length:8},(_,index)=><span key={index}/>)}</div> : data && <>
+      <div className="db-accounting-note"><Clock3 size={15}/><span>Manual revenue follows sale dates; TikTok revenue follows settlement dates. TikTok order counts follow order creation dates.</span></div><div className="db-kpi-grid"><Kpi icon={CircleDollarSign} label="Total realized revenue" value={peso(kpis.revenue?.value)} change={kpis.revenue?.change} note="Manual net sales + TikTok settlements"/><Kpi icon={TrendingUp} label="Net profit" value={peso(kpis.profit?.value)} change={kpis.profit?.change} note="Confirmed profit only"/><Kpi icon={ShoppingBag} label="Total orders" value={kpis.orders?.value || 0} change={kpis.orders?.change} note={`${kpis.orders?.manual || 0} manual · ${kpis.orders?.tikTok || 0} TikTok`}/><Kpi icon={Percent} label="Profit margin" value={`${Number(kpis.margin?.value || 0).toFixed(2)}%`} change={kpis.margin?.change} points note="Based on realized revenue"/></div>
+      <div className="db-grid db-analytics"><section className="panel db-card db-trend-card"><div className="db-card-head"><div><p className="eyebrow">Analytics</p><h2>Revenue &amp; Profit Trend</h2></div><select aria-label="Trend aggregation" value={aggregation} onChange={event => setAggregation(event.target.value)}><option value="day">Daily</option><option value="week">Weekly</option><option value="month">Monthly</option></select></div><TrendChart rows={trend} peso={peso}/></section><section className="panel db-card"><div className="db-card-head"><div><p className="eyebrow">Channels</p><h2>Sales Channel Comparison</h2></div></div><div className="db-channel"><div><span>Manual sales</span><strong>{peso(channels.physicalStore?.revenue)}</strong><small>{channels.physicalStore?.transactions || 0} transactions · {peso(channels.physicalStore?.profit)} profit</small></div><div className="db-progress"><i style={{width:`${Math.min(100,Math.max(0,(channels.physicalStore?.revenue||0)/(channels.combined?.realizedRevenue||1)*100))}%`}}/></div></div><div className="db-channel tiktok"><div><span>TikTok settlements</span><strong>{peso(channels.tikTokSettlements?.netSettlement)}</strong><small>{channels.tikTokSettlements?.orderCount || 0} orders · {peso(channels.tikTokSettlements?.confirmedProfit)} confirmed profit</small></div><div className="db-progress"><i style={{width:`${Math.min(100,Math.max(0,(channels.tikTokSettlements?.netSettlement||0)/(channels.combined?.realizedRevenue||1)*100))}%`}}/></div></div>{channels.tikTokSettlements?.unreconciledCount > 0 && <div className="db-inline-warning"><AlertTriangle size={15}/>{channels.tikTokSettlements.unreconciledCount} settlements remain unconfirmed.</div>}</section></div>
+      <div className="db-grid"><section className="panel db-card"><div className="db-card-head"><div><p className="eyebrow">Operations</p><h2>TikTok Orders</h2></div><button onClick={() => goTo("/tiktok/orders")}>View Orders →</button></div><div className="db-status-grid">{data.orders?.byStatus?.map(row => <div key={row.status}><span>{statusLabel(row.status)}</span><strong>{row.count}</strong></div>)}{!data.orders?.byStatus?.length && <div className="db-empty">No TikTok orders in this period.</div>}</div></section><section className="panel db-card"><div className="db-card-head"><div><p className="eyebrow">Catalog</p><h2>Inventory Health</h2></div><button onClick={() => goTo("/tiktok/products")}>Products →</button></div><div className="db-health-grid"><div><Boxes size={18}/><span>Active variants</span><strong>{inventory.totalProducts || 0}</strong></div><div><Package size={18}/><span>TikTok stock</span><strong>{inventory.totalStock || 0}</strong></div><div className="warning"><AlertTriangle size={18}/><span>Low stock</span><strong>{inventory.lowStockCount || 0}</strong></div><div className="danger"><Package size={18}/><span>Out of stock</span><strong>{inventory.outOfStockCount || 0}</strong></div></div><p className="db-footnote">{inventory.missingCostCount || 0} variants need capital cost</p></section></div>
+      <div className="db-grid db-performance"><section className="panel db-card"><div className="db-card-head"><div><p className="eyebrow">Performance</p><h2>Top-Selling Products</h2><p className="muted db-card-caption">TikTok revenue is order activity, not settled income.</p></div><select aria-label="Sort products" value={productSort} onChange={event=>setProductSort(event.target.value)}><option value="units">Units sold</option><option value="revenue">Order activity revenue</option><option value="profit">Confirmed profit</option></select></div><div className="db-table-wrap"><table><thead><tr><th>Product</th><th>SKU</th><th>Channel</th><th>Units</th><th>Revenue / activity</th><th>Profit</th></tr></thead><tbody>{products.map((row,index)=><tr key={`${row.channel}-${row.productId}-${index}`}><td><strong>{row.productName || "TikTok product"}</strong></td><td>{row.sku || "—"}</td><td><span className={`db-channel-badge ${row.channel.toLowerCase()}`}>{row.channel}</span></td><td>{row.units}</td><td>{peso(row.revenue)}</td><td>{row.profit == null ? "Not allocated" : peso(row.profit)}</td></tr>)}{!products.length&&<tr><td colSpan="6">No product activity in this period.</td></tr>}</tbody></table></div></section><section className="panel db-card"><div className="db-card-head"><div><p className="eyebrow">TikTok Finance</p><h2>Settlement Overview</h2></div><button onClick={()=>goTo("/tiktok/settlements")}>Details →</button></div><div className="db-finance-list"><div><span>Reconciled settlements</span><strong>{finance.reconciledCount||0}</strong></div><div><span>Unreconciled settlements</span><strong>{finance.unreconciledCount||0}</strong></div><div><span>Platform fees</span><strong>{peso(finance.fees)}</strong></div><div><span>Refund adjustments</span><strong>{peso(finance.refunds)}</strong></div><div className="highlight"><span>Confirmed TikTok profit</span><strong>{peso(finance.confirmedProfit)}</strong></div></div><p className="db-footnote"><Clock3 size={14}/>Last finance sync: {phTime(finance.lastSyncedAt)}</p></section></div>
+      <div className="db-grid db-activity"><section className="panel db-card"><div className="db-card-head"><div><p className="eyebrow">Activity</p><h2>Recent Transactions</h2></div></div><div className="db-table-wrap"><table><thead><tr><th>Reference</th><th>Date</th><th>Channel</th><th>Amount</th><th>Status</th></tr></thead><tbody>{data.recentTransactions?.map(row=><tr key={`${row.channel}-${row.id}`} className="db-clickable" onClick={()=>goTo(row.path)}><td><strong>{row.reference}</strong></td><td>{phTime(row.date)}</td><td>{row.channel}</td><td>{peso(row.amount)}</td><td>{statusLabel(row.status)}</td></tr>)}{!data.recentTransactions?.length&&<tr><td colSpan="5">No recent activity.</td></tr>}</tbody></table></div></section><section className="panel db-card"><div className="db-card-head"><div><p className="eyebrow">Attention</p><h2>System Alerts</h2></div></div><div className="db-alert-list">{data.alerts?.map((alert,index)=><button key={`${alert.label}-${index}`} className={alert.severity} onClick={()=>goTo(alert.path)}><AlertTriangle size={17}/><span>{alert.label}</span><b>Review →</b></button>)}{!data.alerts?.length&&<div className="db-empty">No active operational alerts.</div>}</div></section></div>
+    </>}
+  </section>;
+}

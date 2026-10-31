@@ -194,6 +194,36 @@ Replace the placeholder values with your actual configuration.
 
 **Important:** Never upload your actual `.env` file, database credentials, or JWT secret to GitHub.
 
+### TikTok Shop OAuth configuration
+
+Phase 1 adds the server-side TikTok Shop authorization flow. Add these values to the
+local `sales-system/backend/.env` file; keep the App Secret and encryption key private:
+
+```env
+TIKTOK_APP_KEY=your_tiktok_app_key
+TIKTOK_SERVICE_ID=7702024011884611348
+TIKTOK_APP_SECRET=your_tiktok_app_secret
+TIKTOK_REDIRECT_URI=https://your-ngrok-host/api/tiktok/callback
+TIKTOK_FRONTEND_REDIRECT_URI=http://localhost:5173/settings/tiktok
+TIKTOK_TOKEN_ENCRYPTION_KEY=base64-encoded-32-byte-key
+TIKTOK_AUTHORIZATION_URL=https://services.tiktokshop.com/open/authorize
+TIKTOK_TOKEN_BASE_URL=https://auth.tiktok-shops.com
+TIKTOK_API_BASE_URL=https://open-api.tiktokglobalshop.com
+```
+
+Generate `TIKTOK_TOKEN_ENCRYPTION_KEY` with a cryptographically secure random
+32-byte value, for example:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+The backend stores only encrypted TikTok access and refresh tokens. The browser
+receives connection status but never receives either token or the App Secret.
+The OAuth callback is public because TikTok calls it directly; authorization,
+status, and disconnect management routes remain protected by the existing JWT
+middleware.
+
 ### 4. Start the Backend
 
 ```bash

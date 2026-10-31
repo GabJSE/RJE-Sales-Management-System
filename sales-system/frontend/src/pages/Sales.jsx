@@ -175,7 +175,7 @@ function Sales() {
         <div className="sales-page-title">
           <p className="eyebrow">Revenue tracking</p>
           <h1>Sales</h1>
-          <p className="muted">Record sales and track profitability using historical prices.</p>
+          <p className="muted">Legacy manual sales retain their local product snapshots and inventory movements. They are not connected to TikTok stock.</p>
         </div>
         <div className="sales-header-actions">
           <button className="primary-button header-button" type="button" onClick={() => { setEditingSale(null); setForm(emptyForm); setAdditionalItems([]); setProductSearch(""); }}>

@@ -14,6 +14,10 @@ import { authenticate } from "./middleware/auth.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 import exportRoutes from "./routes/exportRoutes.js";
 import backupRoutes from "./routes/backupRoutes.js";
+import tiktokRoutes from "./routes/tiktokRoutes.js";
+import { startTikTokSettlementScheduler } from "./services/tiktokSettlementService.js";
+import { startTikTokOrderScheduler } from "./services/tiktokOrderService.js";
+import { startTikTokProductScheduler } from "./services/tiktokProductService.js";
 
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
 dotenv.config();
@@ -43,6 +47,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/exports", exportRoutes);
 app.use("/api/backups", backupRoutes);
+app.use("/api/tiktok", tiktokRoutes);
 app.use(authenticate);
 app.use("/api/products", productRoutes);
 app.use("/api/sales", saleRoutes);
@@ -79,6 +84,9 @@ const startServer = async () => {
     app.listen(port, host, () => {
       console.log(`Server running at http://${host}:${port}`);
     });
+    startTikTokSettlementScheduler();
+    startTikTokOrderScheduler();
+    startTikTokProductScheduler();
   } catch (error) {
     console.error(`Unable to start server: ${error.message}`);
     process.exit(1);
