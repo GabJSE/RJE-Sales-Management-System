@@ -1,0 +1,21 @@
+[
+  "backend/controllers/saleController.js",
+  "backend/controllers/reportController.js",
+  "backend/controllers/inventoryController.js",
+  "backend/controllers/productController.js",
+  "backend/controllers/exportController.js",
+  "backend/routes/saleRoutes.js",
+  "backend/routes/reportRoutes.js",
+  "backend/routes/inventoryRoutes.js",
+  "backend/routes/productRoutes.js",
+  "backend/routes/exportRoutes.js",
+  "frontend/src/pages/Sales.jsx",
+  "frontend/src/pages/Products.jsx",
+  "frontend/src/pages/Inventory.jsx",
+  "frontend/src/components/ProductForm.jsx",
+  "frontend/src/services/saleService.js",
+  "frontend/src/services/reportService.js",
+  "frontend/src/services/productService.js",
+  "frontend/src/services/inventoryService.js",
+  "frontend/src/services/exportService.js"
+]

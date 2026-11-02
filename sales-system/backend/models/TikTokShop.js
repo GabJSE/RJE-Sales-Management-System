@@ -16,6 +16,7 @@ const tikTokShopSchema = new mongoose.Schema(
     shopName: { type: String, trim: true },
     shopCipher: { type: String, select: false }, shopInfoSyncedAt: Date, lastProductSyncAt: Date, syncLeaseUntil: Date, syncOwner: String,
     lastSettlementSyncAt: Date, settlementSyncLeaseUntil: Date, settlementSyncOwner: String,
+    orderCheckpoint: Date, productCheckpoint: Date, lastFullProductSyncAt: Date, financeCheckpoint: Date, lastFullFinanceSyncAt: Date,
     lastOrderSyncAt: Date, orderSyncLeaseUntil: Date, orderSyncOwner: String,
     region: { type: String, trim: true },
     accessToken: { type: encryptedTokenSchema, select: false },

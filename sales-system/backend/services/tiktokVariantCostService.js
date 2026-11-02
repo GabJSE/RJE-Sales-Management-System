@@ -1,11 +1,15 @@
 import mongoose from "mongoose";
+import FinanceTransaction from "../models/TikTokFinanceTransaction.js";
+import Earning from "../models/TikTokEarning.js";
+import Settlement from "../models/TikTokSettlement.js";
+import { invalidateFinanceCache } from "./financeCacheService.js";
 import Mapping from "../models/TikTokProductMapping.js";
 import TikTokVariantCost from "../models/TikTokVariantCost.js";
 import TikTokOrder from "../models/TikTokOrder.js";
 import { failure } from "./tiktokApiService.js";
 import { fromMinor, minorString, toMinor } from "./money.js";
 
-const validMoney = value => typeof value === "number" ? Number.isFinite(value) && value >= 0 : typeof value === "string" && /^\d+(\.\d{1,2})?$/.test(value.trim());
+const validMoney = value => ["number", "string"].includes(typeof value) && /^\d+(\.\d{1,2})?$/.test(String(value).trim());
 export const publicVariantCost = row => row.capitalCostMinor == null ? null : fromMinor(row.capitalCostMinor);
 
 export async function setVariantCosts({ shopId, edits, userId, source = "manual", reason = "" }) {
@@ -39,6 +43,7 @@ export async function setHistoricalOrderLineCost({ shopId, orderId, lineItemId, 
   const costMinor = minorString(toMinor(cost)); const effectiveFrom = order.createdAtTikTok || order.importedAt || new Date();
   await TikTokVariantCost.create({ shopId, tiktokProductId: line.productId, tiktokSkuId: line.skuId, costMinor, effectiveFrom, effectiveTo: effectiveFrom, source: "historical_override", reason: String(reason).slice(0, 300), orderId, lineItemId: String(line.lineItemId || line.skuId), changedBy: userId });
   line.capitalCostMinorSnapshot = costMinor; line.capitalCostSnapshot = fromMinor(costMinor); line.capitalCostEffectiveAt = effectiveFrom; line.capitalCostSource = "historical_override"; await order.save();
+  await markOrderFinanceDirty(shopId, [orderId]);
   return order;
 }
 
@@ -59,6 +64,15 @@ export async function backfillMissingOrderCosts({ shopId, userId, reason = "Appl
     }
     if (changed) { await order.save(); updatedOrders++; }
   }
-  if (audits.length) await TikTokVariantCost.insertMany(audits, { ordered: false });
+  if (audits.length) { await TikTokVariantCost.insertMany(audits, { ordered: false }); await markOrderFinanceDirty(shopId, [...new Set(audits.map(row => row.orderId))]); }
   return { updatedLines, updatedOrders, missingCatalogCost };
+}
+
+async function markOrderFinanceDirty(shopId, orderIds) {
+  const statementIds = await FinanceTransaction.distinct("statementId", { shopId, tiktokOrderId: { $in: orderIds } });
+  await FinanceTransaction.updateMany({ shopId, tiktokOrderId: { $in: orderIds } }, { $set: { reconciliationStatus: "awaiting_cost", capitalCostKnown: false }, $unset: { capitalCostMinor: 1, profitMinor: 1 } });
+  await Settlement.updateMany({ shopId, statementId: { $in: statementIds } }, { $set: { reconciliationStatus: "awaiting_reconciliation" }, $unset: { calculatedProfitMinor: 1, profitMarginBasisPoints: 1 } });
+  const settlements = await Settlement.find({ shopId, statementId: { $in: statementIds } }).select("_id").lean();
+  await Earning.updateMany({ shopId, linkedSettlementIds: { $in: settlements.map(row => row._id) } }, { $set: { reconciliationStatus: "awaiting_cost" }, $unset: { capitalCostMinor: 1, profitMinor: 1 } });
+  invalidateFinanceCache(shopId);
 }

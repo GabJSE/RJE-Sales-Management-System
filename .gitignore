@@ -1,0 +1,6 @@
+/sales-system/backend/node_modules/
+/sales-system/frontend/.sync-build-check/
+/sales-system/frontend/.sort-build-check/
+/sales-system/frontend/.audit-build/
+/sales-system/frontend/test-results/
+/sales-system/frontend/playwright-report/

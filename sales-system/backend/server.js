@@ -1,23 +1,22 @@
 import cors from "cors";
+import { startSyncWorker } from "./services/tiktokSyncJobService.js";
 import dns from "node:dns";
 import dotenv from "dotenv";
 import express from "express";
 import connectDatabase from "./config/database.js";
-import productRoutes from "./routes/productRoutes.js";
-import saleRoutes from "./routes/saleRoutes.js";
-import reportRoutes from "./routes/reportRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
-import inventoryRoutes from "./routes/inventoryRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import { authenticate } from "./middleware/auth.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
-import exportRoutes from "./routes/exportRoutes.js";
 import backupRoutes from "./routes/backupRoutes.js";
 import tiktokRoutes from "./routes/tiktokRoutes.js";
+import tiktokCustomerServiceRoutes from "./routes/tiktokCustomerServiceRoutes.js";
+import { startCSWorker } from "./services/tiktokCustomerService.js";
 import { startTikTokSettlementScheduler } from "./services/tiktokSettlementService.js";
 import { startTikTokOrderScheduler } from "./services/tiktokOrderService.js";
 import { startTikTokProductScheduler } from "./services/tiktokProductService.js";
+import { registerSupportedTikTokWebhooks } from "./services/tiktokWebhookService.js";
 
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
 dotenv.config();
@@ -36,7 +35,7 @@ app.use(cors({
     return callback(new Error("Origin is not allowed by the server."));
   },
 }));
-app.use(express.json());
+app.use(express.json({ verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
@@ -45,15 +44,11 @@ app.get("/api/health", (_req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/settings", settingsRoutes);
-app.use("/api/exports", exportRoutes);
 app.use("/api/backups", backupRoutes);
+app.use("/api/tiktok/customer-service", tiktokCustomerServiceRoutes);
 app.use("/api/tiktok", tiktokRoutes);
 app.use(authenticate);
-app.use("/api/products", productRoutes);
-app.use("/api/sales", saleRoutes);
-app.use("/api/reports", reportRoutes);
 app.use("/api/dashboard", dashboardRoutes);
-app.use("/api/inventory", inventoryRoutes);
 
 app.use((error, _req, res, _next) => {
   if (error.code === 20 || error.message?.includes("Transaction numbers are only allowed")) {
@@ -64,6 +59,8 @@ app.use((error, _req, res, _next) => {
     const duplicateField = Object.keys(error.keyPattern || {})[0];
     return res.status(409).json({ message: duplicateField ? `A record with this ${duplicateField} already exists.` : "A record with the same unique value already exists." });
   }
+
+  if (error.name === "VersionError") return res.status(409).json({ message: "This order changed during synchronization. Reload it and retry your capital cost edit." });
 
   if (error.name === "ValidationError") {
     const messages = Object.values(error.errors).map((item) => item.message);
@@ -81,12 +78,15 @@ app.use((error, _req, res, _next) => {
 const startServer = async () => {
   try {
     await connectDatabase();
+    await startSyncWorker();
+    await startCSWorker();
     app.listen(port, host, () => {
       console.log(`Server running at http://${host}:${port}`);
     });
     startTikTokSettlementScheduler();
     startTikTokOrderScheduler();
     startTikTokProductScheduler();
+    if (process.env.TIKTOK_WEBHOOK_URL) { const webhookSetup=setTimeout(()=>registerSupportedTikTokWebhooks().catch(error=>console.error(`TikTok webhook registration failed: ${error.message}`)),60_000); webhookSetup.unref?.(); }
   } catch (error) {
     console.error(`Unable to start server: ${error.message}`);
     process.exit(1);

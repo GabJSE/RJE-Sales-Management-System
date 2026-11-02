@@ -1,3 +1,4 @@
+import { passwordIssue } from "../services/settingsValidation.js";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import User from "../models/User.js";
@@ -10,7 +11,7 @@ const getUser = async (id) => {
   return user;
 };
 const validatePassword = (password) => {
-  if (typeof password !== "string" || password.length < 8) throw Object.assign(new Error("Password must be at least 8 characters."), { statusCode: 400 });
+  const issue = passwordIssue(password); if (issue) throw Object.assign(new Error(issue), { statusCode: 400 });
 };
 const activeAdminCount = () => User.countDocuments({ role: "admin", isActive: true });
 
@@ -50,8 +51,7 @@ export const resetPassword = async (req, res, next) => {
   try {
     const user = await getUser(req.params.id);
     validatePassword(req.body.password);
-    user.password = await bcrypt.hash(req.body.password, 12);
-    await user.save();
+    await User.updateOne({ _id: user._id }, { $set: { password: await bcrypt.hash(req.body.password, 12), passwordChangedAt: new Date() }, $inc: { tokenVersion: 1 } });
     res.json({ message: "Password reset successfully." });
   } catch (error) { next(error); }
 };

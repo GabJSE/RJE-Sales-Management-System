@@ -150,7 +150,7 @@ export const refreshAccessToken = () => {
 export const getAccessToken = async () => {
   const shop = await TikTokShop.findOne({ key: "singleton" }).select("+accessToken +refreshToken");
   if (!shop || shop.status !== "connected" || !shop.accessToken) throw apiError("TikTok Shop is not connected.", 401);
-  if (!shop.accessTokenExpiresAt || shop.accessTokenExpiresAt.getTime() - Date.now() > 60 * 1000) {
+  if (!shop.accessTokenExpiresAt || shop.accessTokenExpiresAt.getTime() - Date.now() > 5 * 60 * 1000) {
     return decryptToken(shop.accessToken);
   }
   return refreshAccessToken();

@@ -24,7 +24,10 @@ const schema = new mongoose.Schema({
   lines: { type: [lineSchema], default: [] }, statusHistory: { type: [statusHistorySchema], default: [] },
   finance: { type: mongoose.Schema.Types.Mixed, default: null }, financeSyncedAt: Date,
   importedAt: { type: Date, default: Date.now }, lastSynchronizedAt: Date,
-}, { timestamps: true });
+}, { timestamps: true, optimisticConcurrency: true });
 schema.index({ shopId: 1, orderId: 1 }, { unique: true });
 schema.index({ shopId: 1, createdAtTikTok: -1, orderId: 1 });
+schema.index({ shopId: 1, updatedAtTikTok: 1 });
+schema.index({ shopId: 1, status: 1, orderId: 1 });
+schema.index({ shopId: 1, "lines.skuId": 1 });
 export default mongoose.model("TikTokOrder", schema);

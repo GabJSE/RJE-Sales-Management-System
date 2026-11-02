@@ -20,3 +20,12 @@ test("dashboard comparisons do not fabricate change without a baseline", () => {
   assert.equal(dashboardMath.change(120, 100), 20);
   assert.equal(dashboardMath.margin(25, 100), 25);
 });
+
+test("dashboard ignores stale pending profit and uses confirmed revenue for margin", () => {
+  const result = dashboardMath.settlementTotals([
+    { netSettlementMinor: "8000", calculatedProfitMinor: "6000", reconciliationStatus: "reconciled" },
+    { netSettlementMinor: "12000", calculatedProfitMinor: "9999", reconciliationStatus: "awaiting_reconciliation" },
+  ]);
+  assert.equal(result.confirmedProfit, 60); assert.equal(result.netSettlement, 200);
+  assert.equal(result.reconciledNetSettlement, 80); assert.equal(result.profitMargin, 75);
+});

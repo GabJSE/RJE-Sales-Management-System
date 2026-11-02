@@ -49,6 +49,8 @@ export const getStatus = async (_req, res, next) => {
       scopes: shop?.scopes || [], lastProductSyncAt: shop?.lastProductSyncAt || null,
       connectedAt: shop?.connectedAt || null,
       accessTokenExpiresAt: shop?.accessTokenExpiresAt || null,
+      refreshTokenExpiresAt: shop?.refreshTokenExpiresAt || null,
+      lastOrderSyncAt: shop?.lastOrderSyncAt || null, lastSettlementSyncAt: shop?.lastSettlementSyncAt || null,
       status: shop?.status || "disconnected",
     });
   } catch (error) {

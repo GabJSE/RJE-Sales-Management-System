@@ -1,55 +1,26 @@
+﻿import { useEffect, useRef, useState } from "react";
+import { Link2, RefreshCw, ShieldCheck, Unplug } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
-import { useEffect, useState } from "react";
+import { useSettings } from "../context/SettingsContext.jsx";
 import { disconnectTikTok, getTikTokAuthorizationUrl, getTikTokStatus, refreshTikTokShop } from "../services/tiktokService.js";
+import TikTokSyncProgress from "../components/TikTokSyncProgress.jsx";
+import { connectionHealth } from "../utils/settingsPresentation.js";
+import { requestNavigation } from "../utils/navigation.js";
 
-function TikTokSettings({ embedded = false }) {
-  const { user } = useAuth();
-  const [status, setStatus] = useState(null);
-  const [notice, setNotice] = useState({ type: "", text: "" });
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const loadStatus = async () => {
-    try { setLoading(true); setStatus(await getTikTokStatus()); }
-    catch (error) { setNotice({ type: "error", text: error.message }); }
-    finally { setLoading(false); }
-  };
-
-  useEffect(() => { loadStatus(); }, []);
-
-  const connect = async () => {
-    try {
-      setSaving(true);
-      const { authorizationUrl } = await getTikTokAuthorizationUrl();
-      window.location.assign(authorizationUrl);
-    } catch (error) { setNotice({ type: "error", text: error.message }); setSaving(false); }
-  };
-
-  const disconnect = async () => {
-    if (!window.confirm("Disconnect the authorized TikTok Shop?")) return;
-    try { setSaving(true); await disconnectTikTok(); setNotice({ type: "success", text: "TikTok Shop disconnected." }); await loadStatus(); }
-    catch (error) { setNotice({ type: "error", text: error.message }); }
-    finally { setSaving(false); }
-  };
-
-  return <section className={embedded ? "embedded-module" : ""}>
-    {!embedded && <div className="page-header"><div className="standard-page-title"><p className="eyebrow">Channel integration</p><h1>TikTok Shop</h1><p className="muted">Connect the authorized shop without exposing TikTok credentials to the browser.</p></div></div>}
-    {notice.text && <div className={`notice ${notice.type}`}>{notice.text}</div>}
-    <div className="panel settings-card">
-      <p className="eyebrow">Marketplace integration</p><h2>TikTok Shop connection</h2><p className="muted">OAuth credentials remain encrypted on the server and are never returned to this page.</p>
-      {loading ? <p className="empty-state">Checking TikTok Shop connection...</p> : status?.connected ? <>
-        <p><strong>Connected</strong></p>
-        <p className="muted">Shop: {status.shopName || "Refresh shop information to load the authorized shop."}</p>
-        <p className="muted">Shop ID: {status.shopId || "Not available yet"}</p>
-        <p className="muted">Region: {status.region || "Not available"}</p><p className="muted">Granted scopes: {status.scopes?.join(", ") || "Not returned by TikTok; verify in Partner Center"}</p>{user?.role === "admin" && <button disabled={saving} onClick={async () => { setSaving(true); try { await refreshTikTokShop(); await loadStatus(); } catch (error) { setNotice({ type: "error", text: error.message }); } finally { setSaving(false); } }}>Refresh shop information</button>}
-        <button className="secondary-header-button" onClick={disconnect} disabled={saving}>{saving ? "Disconnecting..." : "Disconnect TikTok Shop"}</button>
-      </> : <>
-        <p className="muted">No TikTok Shop is connected.</p>
-        <button className="primary-button" onClick={connect} disabled={saving}>{saving ? "Opening TikTok..." : "Connect TikTok Shop"}</button>
-      </>}
+export default function TikTokSettings({ embedded = false }) {
+  const { user } = useAuth(); const admin = user?.role === "admin"; const { formatDateTime } = useSettings();
+  const [status, setStatus] = useState(null); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(""); const [notice, setNotice] = useState(null); const sequence = useRef(0); const lock = useRef(false);
+  const load = async () => { const version = ++sequence.current; setLoading(true); try { const result = await getTikTokStatus(); if (version === sequence.current) { setStatus(result); setNotice(null); } } catch (error) { if (version === sequence.current) setNotice({ error: true, text: error.message }); } finally { if (version === sequence.current) setLoading(false); } };
+  useEffect(() => { load(); return () => { sequence.current++; }; }, []);
+  const act = async (name, action) => { if (lock.current || !admin) return; lock.current = true; setBusy(name); setNotice(null); try { await action(); } catch (error) { setNotice({ error: true, text: error.message }); } finally { lock.current = false; setBusy(""); } };
+  const connect = () => act("connect", async () => { const result = await getTikTokAuthorizationUrl(); requestNavigation(() => window.location.assign(result.authorizationUrl)); });
+  const disconnect = () => { if (!window.confirm("Disconnect TikTok Shop? New synchronization will stop. Existing orders, cost history and financial records will be preserved.")) return; act("disconnect", async () => { await disconnectTikTok(); await load(); setNotice({ text: "TikTok Shop disconnected. Historical records were preserved." }); }); };
+  const health = connectionHealth(status); const syncDates = status ? [status.lastOrderSyncAt, status.lastProductSyncAt, status.lastSettlementSyncAt].filter(Boolean).sort((a, b) => new Date(b) - new Date(a)) : [];
+  return <section className="st-integration">{!embedded && <h1>TikTok Shop Integration</h1>}{notice && <p className={`st-feedback ${notice.error ? "error" : "success"}`} role={notice.error ? "alert" : "status"}>{notice.text}</p>}
+    <div className="st-card"><header className="st-connection-header"><div><p className="eyebrow">Marketplace connection</p><h2>TikTok Shop</h2><p>Authorization is managed securely by the backend. Credentials are never displayed here.</p></div><button disabled={loading || Boolean(busy)} onClick={load} aria-label="Refresh connection status"><RefreshCw size={16}/>Refresh status</button></header>
+      {loading && !status ? <p role="status">Checking connection…</p> : !status ? <p>Connection status is unavailable. Refresh status to try again.</p> : <><span className={`st-connection-status ${health === "Connected" ? "connected" : "attention"}`}><ShieldCheck size={16}/>{health}</span><dl className="st-facts st-connection-facts">{[["Authorized shop", status.shopName || "Not available"], ["Shop identifier", status.shopId || "Not available"], ["Region", status.region || "Not available"], ["Last successful sync", formatDateTime(syncDates[0])], ["Access token expiry", formatDateTime(status.accessTokenExpiresAt)], ["Authorization refresh expiry", formatDateTime(status.refreshTokenExpiresAt)]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><p className="st-help">{status.connected && status.accessTokenExpiresAt && new Date(status.accessTokenExpiresAt) <= new Date() && health !== "Expired" ? "The access token has expired. The backend will attempt its existing automatic refresh when needed; reauthorize if that fails." : "Token expiry is authorization metadata, not a token value."}</p><h3>{status?.connected ? "Available API permissions" : "Last reported API permissions"}</h3><div className="st-permissions">{status.scopes?.length ? status.scopes.map(scope => <span key={scope}>{scope}</span>) : <p>Permissions were not returned. Verify them in TikTok Partner Center.</p>}</div></>}
+      {admin && <footer className="st-actions"><button className="st-save" disabled={Boolean(busy) || loading} onClick={connect}><Link2 size={15}/>{busy === "connect" ? "Opening TikTok…" : status?.connected ? "Reauthorize TikTok Shop" : "Connect TikTok Shop"}</button>{status?.connected && <><button disabled={Boolean(busy) || loading} onClick={() => act("shop", async () => { await refreshTikTokShop(); await load(); })}>{busy === "shop" ? "Refreshing…" : "Refresh shop information"}</button><button className="st-danger" disabled={Boolean(busy) || loading} onClick={disconnect}><Unplug size={15}/>{busy === "disconnect" ? "Disconnecting…" : "Disconnect"}</button></>}</footer>}
     </div>
+    <div className="st-card st-sync-settings"><header><h2>Synchronization</h2><p>Existing background queues import TikTok data. Pending jobs are not completed imports.</p></header>{["orders", "products", "settlements"].map(type => <TikTokSyncProgress key={type} type={type} friendly allowStart={status?.connected === true} actionLabel={`Sync ${type === "settlements" ? "Finance" : type === "orders" ? "Orders" : "Products"}`}/> )}</div>
   </section>;
 }
-
-export default TikTokSettings;
-

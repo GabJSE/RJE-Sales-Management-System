@@ -8,7 +8,7 @@ export const getBackupInfo = async (_req, res, next) => {
       status: "MANUAL_REQUIRED",
       lastSuccessfulBackup: history.find((item) => item.status === "COMPLETED") || null,
       history,
-      collections: ["products", "sales", "inventorymovements", "users", "systemsettings"],
+      collections: ["tiktokshops", "tiktokorders", "tiktokproductmappings", "tiktokvariantcosts", "tiktoksettlements", "tiktokfinancetransactions", "tiktokearnings", "tiktoksyncjobs", "users", "systemsettings", "products", "sales", "inventorymovements"],
       instructions: {
         backup: "Use MongoDB Atlas Cloud Backup, or run mongodump from a secure machine with the configured MONGODB_URI. Store the output outside the frontend directory.",
         restore: "Validate the dump, create a recovery copy first, then use mongorestore or Atlas Point-in-Time Recovery. Never paste credentials into the application.",

@@ -1,28 +1,50 @@
-import { shops, sync, list, map, updateCosts, costHistory } from "../controllers/tiktokProductController.js";
+import { sensitiveLimit } from "../middleware/sensitiveLimit.js";
+import { shops, list, updateCosts, costHistory, pricing } from "../controllers/tiktokProductController.js";
 import { Router } from "express";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { authorize, callback, disconnect, getStatus } from "../controllers/tiktokController.js";
-import { dailyProfit, earningDetail, earnings, overview, settlementDetail, settlements, syncSettlements, syncStatus, transactions } from "../controllers/tiktokSettlementController.js";
-import { backfillCosts, getOrder, listOrders, listOrderSyncLogs, syncOrders, updateLineCost } from "../controllers/tiktokOrderController.js";
+import { dailyProfit, earningDetail, earnings, overview, settlementDetail, settlements, syncStatus, transactions } from "../controllers/tiktokSettlementController.js";
+import { backfillCosts, getOrder, listOrders, listOrderSyncLogs, updateLineCost } from "../controllers/tiktokOrderController.js";
+import { approveReply, createReview, editReply, generateReply, getReviewSettings, importReviews, listReviews, markPublished, reviewStats, updateReviewSettings } from "../controllers/tiktokReviewController.js";
+import { receiveTikTokWebhook, registerTikTokWebhooks } from "../controllers/tiktokWebhookController.js";
+import { getAutomaticSyncStatus, syncEverythingNow } from "../controllers/tiktokSyncController.js";
+
+import { queueSync, listSyncJobs, getSyncJob } from "../controllers/tiktokSyncJobController.js";
 
 const router = Router();
 
 router.get("/callback", callback);
+router.post("/webhooks", receiveTikTokWebhook);
 router.use(authenticate);
-router.get("/authorize", requireRole("admin"), authorize);
+router.get("/authorize", requireRole("admin"), sensitiveLimit(), authorize);
 router.get("/status", getStatus);
+router.get("/sync/status", getAutomaticSyncStatus);
+router.get("/sync/jobs", listSyncJobs);
+router.get("/sync/jobs/:jobId", getSyncJob);
+router.post("/sync/now", requireRole("admin"), syncEverythingNow);
+router.post("/sync/webhooks/register", requireRole("admin"), registerTikTokWebhooks);
 router.post("/shops/refresh", requireRole("admin"), shops);
 router.get("/products", list);
-router.post("/products/sync", requireRole("admin"), sync);
+router.post("/products/sync", requireRole("admin"), queueSync("products"));
 router.put("/products/costs", requireRole("admin"), updateCosts);
 router.get("/products/:id/cost-history", costHistory);
-router.put("/products/:id/mapping", requireRole("admin"), map);
+router.get("/products/:id/pricing", pricing);
 router.get("/orders", listOrders);
 router.get("/orders/sync-logs", listOrderSyncLogs);
 router.post("/orders/backfill-costs", requireRole("admin"), backfillCosts);
 router.get("/orders/:orderId", getOrder);
 router.put("/orders/:orderId/lines/:lineItemId/cost", requireRole("admin"), updateLineCost);
-router.post("/orders/sync", requireRole("admin"), syncOrders);
+router.post("/orders/sync", requireRole("admin"), queueSync("orders"));
+router.get("/reviews", listReviews);
+router.get("/reviews/stats", reviewStats);
+router.get("/reviews/settings", getReviewSettings);
+router.post("/reviews", requireRole("admin"), createReview);
+router.post("/reviews/import", requireRole("admin"), importReviews);
+router.put("/reviews/settings", requireRole("admin"), updateReviewSettings);
+router.post("/reviews/:id/generate", requireRole("admin"), generateReply);
+router.put("/reviews/:id/reply", requireRole("admin"), editReply);
+router.post("/reviews/:id/approve", requireRole("admin"), approveReply);
+router.post("/reviews/:id/manual-publish", requireRole("admin"), markPublished);
 router.get("/finance/overview", overview);
 router.get("/finance/earnings", earnings);
 router.get("/finance/earnings/:id", earningDetail);
@@ -31,8 +53,8 @@ router.get("/finance/settlements/:id", settlementDetail);
 router.get("/finance/transactions", transactions);
 router.get("/finance/daily-profit", dailyProfit);
 router.get("/finance/sync/status", syncStatus);
-router.post("/finance/sync", requireRole("admin"), syncSettlements);
-router.post("/disconnect", requireRole("admin"), disconnect);
+router.post("/finance/sync", requireRole("admin"), queueSync("settlements"));
+router.post("/disconnect", requireRole("admin"), sensitiveLimit(), disconnect);
 
 export default router;
 

@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { syncWindow, lowerTimeFilter, nextSyncToken, distinctBy, ownedFieldsChanged, syncBulkWrite } from "./syncDataService.js";
+import { reportSync } from "./syncTelemetry.js";
 import TikTokShop from "../models/TikTokShop.js";
 import TikTokOrder from "../models/TikTokOrder.js";
 import TikTokOrderSyncLog from "../models/TikTokOrderSyncLog.js";
@@ -79,42 +81,73 @@ async function loadMatchingData(shopId, orders) {
   return { variants, costs };
 }
 
-export async function syncTikTokOrders({ from, to = new Date(), mode = "manual" } = {}) {
+export async function syncTikTokOrders({ from, to = new Date(), mode = "manual", forceFull = false } = {}) {
   const shop = await getShop();
+  const { start, end, advance } = syncWindow({ checkpoint: shop.orderCheckpoint, from, to, forceFull });
   const owner = await acquireLease(shop);
-  const end = new Date(to);
-  const start = from ? new Date(from) : new Date((shop.lastOrderSyncAt?.getTime() || Date.now() - 30 * 86400_000) - 5 * 60_000);
+  const heartbeat = setInterval(() => TikTokShop.updateOne({ _id: shop._id, orderSyncOwner: owner }, { $set: { orderSyncLeaseUntil: new Date(Date.now() + 15 * 60_000) } }).catch(() => {}), 5 * 60_000); heartbeat.unref?.();
   let log;
   const totals = { pagesProcessed: 0, ordersFound: 0, ordersCreated: 0, ordersUpdated: 0, unmatchedItems: 0 };
   try {
     log = await TikTokOrderSyncLog.create({ shopId: shop.shopId, mode, rangeStart: start, rangeEnd: end, status: "running" });
-    let token;
-    do {
-      const page = await orderRequest(LIST_PATH, { method: "POST", query: { page_size: 100, page_token: token, sort_field: "update_time", sort_order: "ASC", shop_cipher: shop.shopCipher }, body: { update_time_ge: Math.floor(start.getTime() / 1000), update_time_lt: Math.floor(end.getTime() / 1000) } }, "Get Order List access");
-      totals.pagesProcessed++; totals.ordersFound += (page.orders || []).length;
-      const ids = (page.orders || []).map(order => String(order.id)).filter(Boolean);
-      for (const batch of chunks(ids, 50)) {
+    let token; const seen = new Set(); const processed = new Set();
+    const importIds = async ids => {
+      for (const batch of chunks([...new Set(ids)].filter(id => !processed.has(id)), 50)) {
         const details = await orderRequest(DETAIL_PATH, { query: { ids: batch, shop_cipher: shop.shopCipher } }, "Get Order Detail access");
-        const fullOrders = details.orders || [];
-        const { variants, costs } = await loadMatchingData(shop.shopId, fullOrders);
+        if (!Array.isArray(details.orders)) throw failure("TikTok returned an invalid order detail batch.");
+        const fullOrders = distinctBy(details.orders, row => String(row.id));
+        if (batch.some(id => !fullOrders.some(order => String(order.id) === id))) throw failure("TikTok returned an incomplete order detail batch. Retry synchronization.");
+        const [{ variants, costs }, previous] = await Promise.all([loadMatchingData(shop.shopId, fullOrders), TikTokOrder.find({ shopId: shop.shopId, orderId: { $in: batch } }).lean()]);
+        const byId = new Map(previous.map(row => [row.orderId, row])); const operations = []; let existingWrites = 0;
         for (const order of fullOrders) {
-          const existing = await TikTokOrder.findOne({ shopId: shop.shopId, orderId: String(order.id) }).lean();
-          const normalized = normalizeTikTokOrder(order, variants, costs, existing);
-          normalized.shopId = shop.shopId;
+          const existing = byId.get(String(order.id));
+          const normalized = normalizeTikTokOrder(order, variants, costs, existing); normalized.shopId = shop.shopId;
           totals.unmatchedItems += normalized.lines.filter(line => line.capitalCostMinorSnapshot == null).length;
-          await TikTokOrder.findOneAndUpdate({ shopId: shop.shopId, orderId: normalized.orderId }, { $set: normalized, $setOnInsert: { importedAt: new Date() } }, { upsert: true });
-          if (existing) totals.ordersUpdated++; else totals.ordersCreated++;
+          if (ownedFieldsChanged(existing, normalized)) {
+            // Version check prevents a concurrent manual historical-cost edit being overwritten.
+            operations.push({ updateOne: { filter: existing ? { _id: existing._id, __v: existing.__v ?? { $exists: false } } : { shopId: shop.shopId, orderId: normalized.orderId }, update: { $set: normalized, $inc: { __v: 1 }, ...(!existing ? { $setOnInsert: { importedAt: new Date() } } : {}) }, upsert: !existing } });
+            if (existing) { existingWrites++; totals.ordersUpdated++; } else totals.ordersCreated++;
+          }
+          processed.add(String(order.id));
+        }
+        const written = await syncBulkWrite(TikTokOrder, operations);
+        if (written.matchedCount !== existingWrites) throw failure("An order changed during synchronization. Retry to preserve its latest capital costs.", 409);
+        await reportSync({ stage: "Importing orders", processed: processed.size, pages: totals.pagesProcessed });
+      }
+    };
+    do {
+      const page = await orderRequest(LIST_PATH, { method: "POST", query: { page_size: 100, page_token: token, sort_field: "update_time", sort_order: "ASC", shop_cipher: shop.shopCipher }, body: { ...lowerTimeFilter("update_time_ge", start), update_time_lt: Math.floor(end.getTime() / 1000) } }, "Get Order List access");
+      // TikTok omits orders when a completed search has zero matches.
+      if (page.orders == null && page.total_count === 0 && !page.next_page_token) page.orders = [];
+      if (!Array.isArray(page.orders) || page.orders.some(order => !order.id)) throw failure("TikTok returned an invalid order page.");
+      totals.pagesProcessed++; totals.ordersFound += page.orders.length;
+      const summaries = distinctBy(page.orders, row => String(row.id));
+      if (!forceFull && shop.orderCheckpoint) {
+        const existing = await TikTokOrder.find({ shopId: shop.shopId, orderId: { $in: summaries.map(row => String(row.id)) } }).select("orderId status updatedAtTikTok").lean();
+        const byId = new Map(existing.map(row => [row.orderId, row]));
+        for (const row of summaries) {
+          const saved = byId.get(String(row.id));
+          if (saved && ["COMPLETED", "CANCELLED"].includes(saved.status) && row.update_time && saved.updatedAtTikTok && Number(row.update_time) * 1000 === new Date(saved.updatedAtTikTok).getTime() && (!row.status || row.status === saved.status)) processed.add(String(row.id));
         }
       }
-      token = page.next_page_token || null;
+      await importIds(summaries.map(order => String(order.id)));
+      await reportSync({ stage: "Checking updated orders", processed: processed.size, pages: totals.pagesProcessed });
+      token = nextSyncToken(page.next_page_token, seen);
     } while (token);
-    await TikTokShop.updateOne({ _id: shop._id, orderSyncOwner: owner }, { lastOrderSyncAt: end, $unset: { orderSyncLeaseUntil: 1, orderSyncOwner: 1 } });
+    // Update-time discovery is authoritative, but recheck pending local orders as a safety net.
+    const pending = TikTokOrder.find({ shopId: shop.shopId, status: { $nin: ["COMPLETED", "CANCELLED"] } }).select("orderId").lean().cursor();
+    let pendingIds = [];
+    for await (const order of pending) { pendingIds.push(order.orderId); if (pendingIds.length === 50) { await importIds(pendingIds); pendingIds = []; } }
+    await importIds(pendingIds);
     Object.assign(log, totals, { status: "completed", completedAt: new Date() }); await log.save();
+    const checkpointUpdate = await TikTokShop.updateOne({ _id: shop._id, orderSyncOwner: owner }, { $max: { lastOrderSyncAt: new Date(), ...(advance ? { orderCheckpoint: end } : {}) } });
+    if (checkpointUpdate.matchedCount !== 1) throw failure("Synchronization lease was lost before saving its checkpoint. Retry safely.", 409);
     return { ...totals, synchronizedAt: end, inventoryChanged: false };
   } catch (error) {
     if (log) { Object.assign(log, totals, { status: "failed", completedAt: new Date(), errorMessage: error.statusCode === 403 ? "TikTok denied Orders API access." : error.message }); await log.save(); }
     throw error;
   } finally {
+    clearInterval(heartbeat);
     await TikTokShop.updateOne({ _id: shop._id, orderSyncOwner: owner }, { $unset: { orderSyncLeaseUntil: 1, orderSyncOwner: 1 } });
   }
 }
@@ -122,7 +155,9 @@ export async function syncTikTokOrders({ from, to = new Date(), mode = "manual" 
 let timer;
 export function startTikTokOrderScheduler() {
   if (String(process.env.TIKTOK_ORDER_SYNC_ENABLED || "true").toLowerCase() !== "true" || timer) return;
-  const minutes = Math.max(5, Number(process.env.TIKTOK_ORDER_SYNC_INTERVAL_MINUTES) || 15);
-  timer = setInterval(() => syncTikTokOrders({ mode: "scheduled" }).catch(error => console.error(`TikTok order sync failed: ${error.message}`)), minutes * 60_000);
+  const minutes = Math.max(5, Number(process.env.TIKTOK_ORDER_SYNC_INTERVAL_MINUTES) || 5);
+  const run = () => import("./tiktokSyncJobService.js").then(({ enqueueSync }) => enqueueSync("orders", {}, "scheduled")).catch(error => { if (![401, 403, 409].includes(error.statusCode)) console.error(`TikTok order sync failed: ${error.message}`); });
+  timer = setInterval(run, minutes * 60_000);
   timer.unref?.();
+  const startup = setTimeout(run, 15_000); startup.unref?.();
 }

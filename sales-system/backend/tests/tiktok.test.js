@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { tiktokRequest } from "../services/tiktokApiService.js";
-import { normalizeSku, productRows, reconcileMappings, stockReconciliationCandidates, syncProducts } from "../services/tiktokProductService.js";
+import { normalizeSku, productRows, syncProducts } from "../services/tiktokProductService.js";
 import Mapping from "../models/TikTokProductMapping.js";
-import Product from "../models/Product.js";
 import Shop from "../models/TikTokShop.js";
+import ProductSyncLog from "../models/TikTokProductSyncLog.js";
 import { createTikTokSignature } from "../services/tiktokSignature.js";
 import { saveTokenResponse } from "../services/tiktokOAuthService.js";
 const config = () => ({ appKey: "app", appSecret: "secret", apiBaseUrl: "https://example.test" });
@@ -95,28 +95,6 @@ test("SKU normalization ignores hyphen and dash characters", () => {
   assert.equal(normalizeSku("9000–0000"), "90000000");
   assert.equal(normalizeSku("9000—0000"), "90000000");
 });
-test("duplicate SKUs stay unmapped, exact matches map, manual mappings survive", async t => {
-  const rows = [
-    { normalizedSku: "DUP", mappingSource: "auto" }, { normalizedSku: "DUP", mappingSource: "auto" },
-    { normalizedSku: "EXACT", mappingSource: "auto" }, { normalizedSku: "MISSING", mappingSource: "auto" },
-    { normalizedSku: "DUP", mappingSource: "manual", rjeProductId: "p2" },
-  ].map(row => ({ ...row, save: async () => {} }));
-  t.mock.method(Mapping, "find", async () => rows);
-  t.mock.method(Product, "find", () => ({ select: () => ({ lean: async () => [{ _id: "p1", sku: "EXACT" }, { _id: "p2", sku: "DUP" }] }) }));
-  await reconcileMappings("shop");
-  assert.deepEqual(rows.map(r => r.mappingStatus), ["duplicate", "duplicate", "mapped", "unmatched", "mapped"]);
-  assert.equal(rows[2].rjeProductId, "p1"); assert.equal(rows[4].rjeProductId, "p2");
-});
-test("stock synchronization accepts one mapped SKU and rejects ambiguous mappings", () => {
-  const unique = stockReconciliationCandidates([{ _id: "m1", rjeProductId: "p1", mappingStatus: "mapped", stock: 7 }]);
-  assert.equal(unique.candidates.length, 1); assert.equal(unique.candidates[0].stock, 7); assert.equal(unique.ambiguous, 0);
-  const ambiguous = stockReconciliationCandidates([
-    { _id: "m1", rjeProductId: "p1", mappingStatus: "mapped", stock: 7 },
-    { _id: "m2", rjeProductId: "p1", mappingStatus: "mapped", stock: 3 },
-    { _id: "m3", rjeProductId: "p2", mappingStatus: "mapped", stock: null },
-  ]);
-  assert.equal(ambiguous.candidates.length, 0); assert.equal(ambiguous.ambiguous, 3);
-});
 test("sync rejects a concurrent operation before making API requests", async t => {
   t.mock.method(Shop, "findOne", async () => ({ status: "connected" }));
   t.mock.method(Shop, "findOneAndUpdate", async () => null);
@@ -132,10 +110,10 @@ test("full sync traverses pages, retrieves details, upserts snapshots, releases 
   t.mock.method(Shop, "findOne", () => ({ then: resolve => Promise.resolve(shop).then(resolve), select: async () => shop }));
   t.mock.method(Shop, "findOneAndUpdate", async () => shop);
   const shopUpdates = []; t.mock.method(Shop, "updateOne", async (...args) => { shopUpdates.push(args); return { matchedCount: 1 }; });
-  const snapshots = []; t.mock.method(Mapping, "updateOne", async (...args) => snapshots.push(args));
+  const snapshots = []; t.mock.method(Mapping, "bulkWrite", async operations => { snapshots.push(...operations.filter(row => row.updateOne).map(row => row.updateOne)); return { matchedCount: 0 }; });
   t.mock.method(Mapping, "updateMany", async () => ({ modifiedCount: 0 }));
-  t.mock.method(Mapping, "find", async () => []);
-  t.mock.method(Product, "find", () => ({ select: () => ({ lean: async () => [] }) }));
+  t.mock.method(Mapping, "find", () => ({ lean: async () => [], select: () => ({ lean: () => ({ cursor: async function* () {} }) }) }));
+  t.mock.method(ProductSyncLog, "create", async row => ({ ...row, save: async () => {} }));
   let searches = 0; let details = 0;
   t.mock.method(globalThis, "fetch", async (url, options) => {
     assert.equal(url.origin, "https://example.test");
@@ -149,6 +127,11 @@ test("full sync traverses pages, retrieves details, upserts snapshots, releases 
   });
   const result = await syncProducts();
   assert.equal(searches, 2); assert.equal(details, 2); assert.equal(result.count, 2);
-  assert.equal(snapshots.length, 2); assert.equal(snapshots[0][2].upsert, true);
+  assert.equal(snapshots.length, 2); assert.equal(snapshots[0].upsert, true);
+  assert.equal(snapshots[0].update.$set.capitalCostMinor, undefined);
   assert.ok(shopUpdates.at(-1)[1].$unset.syncOwner);
+});
+
+test("parameter validation failures identify safe fields and endpoints without exposing upstream messages", async () => {
+  await assert.rejects(tiktokRequest("/finance/202309/withdrawals", {}, { ...deps, fetch: async () => reply({ code: 36009004, message: "CreateTimeGe is invalid, check validation rule is: $this > 0. private-token secret", request_id: "abcdef0123456789" }, 400) }), error => error.message.includes("create_time_ge") && error.message.includes("/finance/202309/withdrawals") && !error.message.includes("private-token") && !error.message.includes("secret") && error.apiDiagnostics.requestId === "abcdef0123456789");
 });

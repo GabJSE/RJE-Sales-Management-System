@@ -1,63 +1,59 @@
-import { useEffect, useMemo, useState } from "react";
+import { displayCalendarDate } from "../utils/settingsPresentation.js";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, RefreshCw } from "lucide-react";
-import { getReport } from "../services/reportService.js";
-import { downloadExport } from "../services/exportService.js";
+import TikTokSyncProgress, { useSyncCompletion } from "../components/TikTokSyncProgress.jsx";
+import DateRangeFilter, { dateRangeForPreset } from "../components/DateRangeFilter.jsx";
 import { getTikTokFinanceOverview, getTikTokSettlements, syncTikTokSettlements } from "../services/tiktokService.js";
-import { useSettings } from "../context/SettingsContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useSettings } from "../context/SettingsContext.jsx";
 
-const percent = value => `${Number(value || 0).toFixed(2)}%`;
-const localDate = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-const monthRange = () => { const now = new Date(); return { startDate: localDate(new Date(now.getFullYear(), now.getMonth(), 1)), endDate: localDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)) }; };
-const emptyReport = { summary: {}, daily: [], products: [] };
-const emptyFinance = { overview: {}, settlements: [] };
+const peso = value => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(value ?? 0);
 const csvCell = value => `"${String(value ?? "").replaceAll('"', '""')}"`;
-
-function SummaryGrid({ items }) { return <div className="summary-grid">{items.map(([label, value]) => <div className="summary-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>; }
+const empty = { overview: {}, settlements: [] };
 
 export default function Reports() {
-  const { formatCurrency: peso, formatDate } = useSettings(); const { user } = useAuth(); const initialRange = useMemo(monthRange, []);
-  const [range, setRange] = useState(initialRange); const [selectedPreset, setSelectedPreset] = useState("month"); const [report, setReport] = useState(emptyReport); const [finance, setFinance] = useState(emptyFinance);
-  const [notice, setNotice] = useState({ type: "", text: "" }); const [isLoading, setIsLoading] = useState(true); const [isSyncingFinance, setIsSyncingFinance] = useState(false);
-
-  const loadReport = async (nextRange = range) => {
-    setIsLoading(true);
-    const [manualResult, overviewResult, settlementsResult] = await Promise.allSettled([getReport(nextRange.startDate, nextRange.endDate), getTikTokFinanceOverview(nextRange.startDate, nextRange.endDate), getTikTokSettlements(nextRange.startDate, nextRange.endDate)]);
-    setReport(manualResult.status === "fulfilled" ? manualResult.value : emptyReport);
-    setFinance({ overview: overviewResult.status === "fulfilled" ? overviewResult.value : {}, settlements: settlementsResult.status === "fulfilled" ? settlementsResult.value.settlements || [] : [] });
-    const failures = [manualResult, overviewResult, settlementsResult].filter(result => result.status === "rejected");
-    setNotice(failures.length ? { type: "error", text: `Some report data could not be loaded: ${failures.map(result => result.reason?.message || "Request failed").join("; ")}` } : { type: "", text: "" }); setIsLoading(false);
+  const { user } = useAuth(); const { formatDate, settings } = useSettings();
+  const [range, setRange] = useState(() => { const query = new URLSearchParams(window.location.search); const defaults = dateRangeForPreset("today"); return { from: query.get("startDate") || defaults.from, to: query.get("endDate") || defaults.to }; });
+  const [data, setData] = useState(empty); const [loading, setLoading] = useState(true); const [syncing, setSyncing] = useState(false); const [notice, setNotice] = useState(""); const loadVersion = useRef(0);
+  const load = async () => {
+    const version = ++loadVersion.current; setLoading(true); setNotice(""); setData(empty);
+    try {
+      const [overview, rows] = await Promise.all([getTikTokFinanceOverview(range.from, range.to), getTikTokSettlements(range.from, range.to)]);
+      if (version === loadVersion.current) setData({ overview, settlements: rows.settlements || [] });
+    } catch (error) { if (version === loadVersion.current) setNotice(error.message); }
+    finally { if (version === loadVersion.current) setLoading(false); }
   };
-  useEffect(() => { loadReport(initialRange); }, []);
-
-  const applyPreset = event => {
-    const value = event.target.value; setSelectedPreset(value); const now = new Date(); let start = new Date(now.getFullYear(), now.getMonth(), 1); let end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    if (value === "today") start = end = now; if (value === "yesterday") start = end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1); if (value === "week") { start = new Date(now); start.setDate(now.getDate() - now.getDay()); end = new Date(start); end.setDate(start.getDate() + 6); } if (value === "lastMonth") { start = new Date(now.getFullYear(), now.getMonth() - 1, 1); end = new Date(now.getFullYear(), now.getMonth(), 0); } if (value === "year") { start = new Date(now.getFullYear(), 0, 1); end = new Date(now.getFullYear(), 11, 31); }
-    const next = { startDate: localDate(start), endDate: localDate(end) }; setRange(next); if (value !== "custom") loadReport(next);
+  useEffect(() => { load(); return () => { loadVersion.current++; }; }, [range.from, range.to]);
+  useSyncCompletion("settlements", load);
+  const sync = async () => { setSyncing(true); setNotice(""); try { await syncTikTokSettlements(range); await load(); } catch (error) { setNotice(error.message); } finally { setSyncing(false); } };
+  const exportSettlements = () => {
+    const headers = ["Settlement date", "Statement ID", "Orders", "Settlement revenue", "Fees", "Taxes", "Net settlement", "Known capital", "Confirmed profit", "Status"];
+    const rows = data.settlements.map(row => [row.settlementDate, row.statementId, row.orderCount, row.totalRevenue, row.totalFees, row.totalTaxes, row.netSettlement, row.totalCapitalCost, row.calculatedProfit ?? "Unconfirmed", row.reconciliationStatus]);
+    const blob = new Blob([[headers, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const anchor = document.createElement("a"); anchor.href = URL.createObjectURL(blob); anchor.download = `TikTok_Settlements_${range.from}_to_${range.to}.csv`; anchor.click(); URL.revokeObjectURL(anchor.href);
   };
-  const handleExport = async () => { try { await downloadExport(`reports?format=csv&startDate=${range.startDate}&endDate=${range.endDate}`, `RJE_Report_${range.startDate}_to_${range.endDate}.csv`); } catch (error) { setNotice({ type: "error", text: error.message }); } };
-  const exportSettlements = () => { const headers = ["Settlement date","Statement ID","Orders","Revenue","Fees","Taxes returned","Net settlement","Capital","Profit","Status"]; const rows = finance.settlements.map(row => [row.settlementDate,row.statementId,row.orderCount,row.totalRevenue,row.totalFees,row.totalTaxes,row.netSettlement,row.totalCapitalCost,row.calculatedProfit ?? "Unconfirmed",row.reconciliationStatus]); const blob = new Blob([[headers,...rows].map(row => row.map(csvCell).join(",")).join("\r\n")],{type:"text/csv;charset=utf-8"}); const anchor=document.createElement("a"); anchor.href=URL.createObjectURL(blob); anchor.download=`TikTok_Settlements_${range.startDate}_to_${range.endDate}.csv`; anchor.click(); URL.revokeObjectURL(anchor.href); };
-  const syncFinance = async () => { setIsSyncingFinance(true); setNotice({type:"",text:""}); try { const result=await syncTikTokSettlements({from:range.startDate,to:range.endDate}); await loadReport(range); setNotice({type:"success",text:`TikTok Finance synchronized ${result.transactions||0} statement transactions. Manual sales and inventory were unchanged.`}); } catch(error){setNotice({type:"error",text:error.message});} finally{setIsSyncingFinance(false);} };
-
-  const maxChartValue=useMemo(()=>Math.max(...report.daily.map(item=>Math.abs(item.netSales||0)),1),[report.daily]); const topByQuantity=useMemo(()=>[...report.products].sort((a,b)=>b.totalQuantitySold-a.totalQuantitySold).slice(0,5),[report.products]); const topByProfit=useMemo(()=>[...report.products].sort((a,b)=>b.totalProfit-a.totalProfit).slice(0,5),[report.products]);
-  const summary=report.summary; const settlement=finance.overview; const hasSales=report.daily.length>0;
-
+  const days = useMemo(() => {
+    const grouped = new Map();
+    for (const row of data.settlements) {
+      const date = new Date(new Date(row.settlementDate).getTime() + 8 * 3600_000).toISOString().slice(0, 10);
+      const day = grouped.get(date) || { date, netMinor: 0n, profitMinor: 0n, statements: 0, confirmed: 0 };
+      day.netMinor += BigInt(row.netSettlementMinor || 0); day.statements++;
+      if (row.reconciliationStatus === "reconciled") { day.profitMinor += BigInt(row.calculatedProfitMinor || 0); day.confirmed++; }
+      grouped.set(date, day);
+    }
+    return [...grouped.values()].sort((a, b) => a.date.localeCompare(b.date));
+  }, [data.settlements]);
+  const summary = data.overview;
   return <section className="reports-page">
-    <div className="page-header"><div className="standard-page-title"><p className="eyebrow">Business intelligence</p><h1>Reports</h1><p className="muted">Review TikTok settlement profit and manual sales without combining their accounting.</p></div><div className="report-header-actions"><button className="secondary-header-button report-export-button" onClick={handleExport} disabled={isLoading}><Download size={16}/>Export Manual Sales</button><button className="secondary-header-button report-export-button" onClick={exportSettlements} disabled={isLoading||!finance.settlements.length}><Download size={16}/>Export Settlements</button></div></div>
-    {notice.text&&<div className={`notice ${notice.type}`} role={notice.type==="error"?"alert":"status"}>{notice.text}<button onClick={()=>setNotice({type:"",text:""})}>×</button></div>}
-    <div className="panel report-filters"><label>Date range<select value={selectedPreset} onChange={applyPreset}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="week">This Week</option><option value="month">This Month</option><option value="lastMonth">Last Month</option><option value="year">This Year</option><option value="custom">Custom Date Range</option></select></label><label>From<input type="date" value={range.startDate} max={range.endDate} onChange={event=>{setSelectedPreset("custom");setRange({...range,startDate:event.target.value});}}/></label><label>To<input type="date" value={range.endDate} min={range.startDate} onChange={event=>{setSelectedPreset("custom");setRange({...range,endDate:event.target.value});}}/></label><button className="primary-button filter-button" onClick={()=>loadReport()} disabled={isLoading}>Generate report</button></div>
-    {isLoading?<p className="empty-state">Loading report…</p>:<>
-      <section className="report-channel-section"><div className="report-section-heading"><div><p className="eyebrow">TikTok Finance</p><h2>Settlements &amp; Profit</h2><p className="muted">Actual statement amounts and confirmed historical capital snapshots.</p></div>{user?.role==="admin"&&<button className="primary-button report-sync-button" onClick={syncFinance} disabled={isSyncingFinance}><RefreshCw size={16} className={isSyncingFinance?"spinning":""}/>{isSyncingFinance?"Syncing…":"Sync Finance"}</button>}</div>
-        <SummaryGrid items={[["Gross revenue",peso(settlement.grossRevenue)],["TikTok fees",peso(settlement.fees)],["Taxes returned",peso(settlement.taxes)],["Net settlement",peso(settlement.netSettlement)],["Product capital",peso(settlement.capitalCost)],["Confirmed profit",peso(settlement.netProfit)],["Unreconciled",peso(settlement.unreconciledAmount)],["Statements",settlement.statementCount||0]]}/>
-        <div className="panel report-table-panel"><div className="list-toolbar"><div><p className="eyebrow">Statement reconciliation</p><h2>Synced TikTok settlements</h2></div><strong>{finance.settlements.length}</strong></div><div className="table-wrapper report-settlement-table"><table><thead><tr><th>Date</th><th>Statement</th><th>Orders</th><th>Revenue</th><th>Fees</th><th>Taxes</th><th>Net settlement</th><th>Capital</th><th>Profit</th><th>Status</th></tr></thead><tbody>{finance.settlements.map(row=><tr key={row._id}><td>{formatDate(row.settlementDate)}</td><td>{row.statementId}</td><td>{row.orderCount}</td><td>{peso(row.totalRevenue)}</td><td>{peso(row.totalFees)}</td><td>{peso(row.totalTaxes)}</td><td>{peso(row.netSettlement)}</td><td>{peso(row.totalCapitalCost)}</td><td>{row.calculatedProfit==null?"Unconfirmed":peso(row.calculatedProfit)}</td><td>{String(row.reconciliationStatus||"").replaceAll("_"," ")}</td></tr>)}{!finance.settlements.length&&<tr><td colSpan="10">No TikTok settlements found for this date range.</td></tr>}</tbody></table></div></div>
-      </section>
-      <section className="report-channel-section report-manual-section"><div className="report-section-heading"><div><p className="eyebrow">Physical / manual sales</p><h2>Manual sales performance</h2><p className="muted">Historical values recorded through the manual Sales workflow.</p></div></div>
-        <SummaryGrid items={[["Total Sales",peso(summary.totalSales)],["Total Capital",peso(summary.totalCapital)],["TikTok Fees",peso(summary.totalTiktokFees)],["Withholding Tax",peso(summary.totalWithholdingTax)],["Net Sales",peso(summary.netSales)],["Total Profit",peso(summary.totalProfit)],["Profit Margin",percent(summary.profitMargin)],["Quantity Sold",summary.totalQuantitySold||0],["Transactions",summary.transactionCount||0]]}/>
-        {!hasSales?<p className="empty-state report-empty">No manual sales found for the selected date range.</p>:<><div className="report-charts"><div className="panel"><div className="list-toolbar"><div><p className="eyebrow">Trend</p><h2>Net sales by day</h2></div></div><div className="bar-chart">{report.daily.map(item=><div className="bar-column" key={item.date}><div className="bar-value">{peso(item.netSales)}</div><div className="bar" style={{height:`${Math.max(5,Math.abs(item.netSales)/maxChartValue*150)}px`}}/><small>{item.date.slice(5)}</small></div>)}</div></div><div className="panel"><div className="list-toolbar"><div><p className="eyebrow">Trend</p><h2>Profit by day</h2></div></div><div className="bar-chart">{report.daily.map(item=><div className="bar-column" key={item.date}><div className="bar-value">{peso(item.totalProfit)}</div><div className="bar profit-bar" style={{height:`${Math.max(5,Math.abs(item.totalProfit)/maxChartValue*150)}px`}}/><small>{item.date.slice(5)}</small></div>)}</div></div></div>
-          <div className="top-products"><div className="panel"><p className="eyebrow">Top products</p><h2>By quantity sold</h2><ol>{topByQuantity.map(item=><li key={`quantity-${item.productId}-${item.productName}`}><strong>{item.productName}</strong> — {item.totalQuantitySold} units</li>)}</ol></div><div className="panel"><p className="eyebrow">Top products</p><h2>By profit</h2><ol>{topByProfit.map(item=><li key={`profit-${item.productId}-${item.productName}`}><strong>{item.productName}</strong> — {peso(item.totalProfit)}</li>)}</ol></div></div>
-          <div className="panel report-table-panel"><div className="list-toolbar"><div><p className="eyebrow">Daily breakdown</p><h2>Daily sales report</h2></div></div><div className="table-wrapper"><table><thead><tr><th>Date</th><th>Sales</th><th>Capital</th><th>Fees</th><th>Net Sales</th><th>Profit</th><th>Margin</th></tr></thead><tbody>{report.daily.map(item=><tr key={item.date}><td>{item.date}</td><td>{peso(item.totalSales)}</td><td>{peso(item.totalCapital)}</td><td>{peso(item.totalTiktokFees)}</td><td>{peso(item.netSales)}</td><td>{peso(item.totalProfit)}</td><td>{percent(item.profitMargin)}</td></tr>)}</tbody></table></div></div>
-          <div className="panel report-table-panel"><div className="list-toolbar"><div><p className="eyebrow">Product performance</p><h2>Products</h2></div></div><div className="table-wrapper"><table><thead><tr><th>Product</th><th>Quantity</th><th>Sales</th><th>Capital</th><th>Fees</th><th>Net Sales</th><th>Profit</th><th>Margin</th></tr></thead><tbody>{report.products.map(item=><tr key={`${item.productId}-${item.productName}`}><td>{item.productName}</td><td>{item.totalQuantitySold}</td><td>{peso(item.totalSales)}</td><td>{peso(item.totalCapital)}</td><td>{peso(item.totalTiktokFees)}</td><td>{peso(item.netSales)}</td><td>{peso(item.totalProfit)}</td><td>{percent(item.profitMargin)}</td></tr>)}</tbody></table></div></div></>}
-      </section>
+    <div className="page-header"><div className="standard-page-title"><p className="eyebrow">TikTok analytics</p><h1>Reports</h1><p className="muted">PHP settlement performance using actual TikTok amounts and historical product capital.</p></div><button className="secondary-header-button report-export-button" onClick={exportSettlements} disabled={loading || !data.settlements.length}><Download size={16}/>Export Settlements</button></div>
+    {notice && <div className="notice error" role="alert">{notice}<button onClick={load}>Retry</button></div>}
+    <TikTokSyncProgress type="settlements"/>
+    <div className="report-finance-actions"><DateRangeFilter value={range} onApply={next => setRange({ from: next.from, to: next.to })} syncUrlKeys={{ from: "startDate", to: "endDate" }} disabled={loading || syncing}/>{user?.role === "admin" && <button className="primary-button report-sync-button" onClick={sync} disabled={loading || syncing}><RefreshCw size={16}/>{syncing ? "Syncing…" : "Sync Finance"}</button>}</div>
+    {loading ? <p className="empty-state" role="status">Loading TikTok report…</p> : <>
+      <div className="summary-grid reports-summary-grid">{[["Settlement revenue", peso(summary.grossRevenue)], ["TikTok fees", peso(summary.fees)], ["TikTok tax deductions", peso(summary.taxes)], ["Net settlement", peso(summary.netSettlement)], ["Known product capital", peso(summary.capitalCost)], ["Confirmed settlement profit", peso(summary.netProfit)], ["Confirmed margin", summary.profitMargin == null ? "Unconfirmed" : `${summary.profitMargin.toFixed(2)}%`], ["Unreconciled amount", peso(summary.unreconciledAmount)]].map(([label, value]) => <div className="summary-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+      <p className="muted">Profit covers {summary.reconciledStatementCount || 0} of {summary.statementCount || 0} statements and excludes external expenses. Capital can be partial on unreconciled statements. Bank payment may still be pending.</p>
+      <div className="panel report-table-panel"><h2>Daily settlements and confirmed profit</h2><div className="table-wrapper"><table><thead><tr><th>Date (Manila)</th><th>Net settlement</th><th>Confirmed profit</th><th>Reconciled statements</th></tr></thead><tbody>{days.map(day => <tr key={day.date}><td>{displayCalendarDate(day.date, settings.dateFormat)}</td><td>{peso(Number(day.netMinor) / 100)}</td><td>{day.confirmed ? peso(Number(day.profitMinor) / 100) : "Unconfirmed"}</td><td>{day.confirmed} / {day.statements}</td></tr>)}{!days.length && <tr><td colSpan="4">No settlements for this period.</td></tr>}</tbody></table></div></div>
+      <div className="panel report-table-panel"><h2>TikTok settlement statements</h2><div className="table-wrapper report-settlement-table"><table><thead><tr><th>Date</th><th>Statement</th><th>Orders</th><th>Revenue</th><th>Fees</th><th>Tax</th><th>Net settlement</th><th>Known capital</th><th>Confirmed profit</th><th>Status</th></tr></thead><tbody>{data.settlements.map(row => <tr key={row._id}><td>{formatDate(row.settlementDate)}</td><td>{row.statementId}</td><td>{row.orderCount}</td><td>{peso(row.totalRevenue)}</td><td>{peso(row.totalFees)}</td><td>{peso(row.totalTaxes)}</td><td>{peso(row.netSettlement)}</td><td>{peso(row.totalCapitalCost)}</td><td>{row.calculatedProfit == null ? "Unconfirmed" : peso(row.calculatedProfit)}</td><td>{String(row.reconciliationStatus || "").replaceAll("_", " ")}</td></tr>)}{!data.settlements.length && <tr><td colSpan="10">No TikTok statements for this period.</td></tr>}</tbody></table></div></div>
     </>}
   </section>;
 }

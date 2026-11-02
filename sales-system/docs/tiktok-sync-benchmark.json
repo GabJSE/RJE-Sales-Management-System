@@ -1,0 +1,130 @@
+{
+  "fixture": {
+    "orders": 500,
+    "settledOrders": 10,
+    "simulatedApiLatencyMs": 2,
+    "note": "Local temporary MongoDB and mocked TikTok responses. Not an Atlas or live TikTok speed guarantee. Database operations include token reads, logs and lease writes."
+  },
+  "measurements": [
+    {
+      "name": "orders: previous per-record write pattern",
+      "apiRequests": 15,
+      "databaseOperations": 1035,
+      "durationMs": 1051,
+      "peakHeapIncreaseBytes": 18773768,
+      "result": {
+        "imported": 500
+      }
+    },
+    {
+      "name": "orders: optimized full import",
+      "apiRequests": 15,
+      "databaseOperations": 62,
+      "durationMs": 399,
+      "peakHeapIncreaseBytes": 15956512,
+      "result": {
+        "pagesProcessed": 5,
+        "ordersFound": 500,
+        "ordersCreated": 500,
+        "ordersUpdated": 0,
+        "unmatchedItems": 0,
+        "synchronizedAt": "2026-10-31T12:39:17.779Z",
+        "inventoryChanged": false
+      }
+    },
+    {
+      "name": "orders: optimized incremental (10 updated records)",
+      "apiRequests": 2,
+      "databaseOperations": 14,
+      "durationMs": 49,
+      "peakHeapIncreaseBytes": 3240080,
+      "result": {
+        "pagesProcessed": 1,
+        "ordersFound": 10,
+        "ordersCreated": 0,
+        "ordersUpdated": 10,
+        "unmatchedItems": 0,
+        "synchronizedAt": "2026-10-31T12:39:18.183Z",
+        "inventoryChanged": false
+      }
+    },
+    {
+      "name": "finance: previous broad order discovery (three concurrent)",
+      "apiRequests": 502,
+      "databaseOperations": 1007,
+      "durationMs": 2646,
+      "peakHeapIncreaseBytes": 16075576,
+      "result": {
+        "ordersChecked": 500
+      }
+    },
+    {
+      "name": "finance: optimized statement discovery (cold cache)",
+      "apiRequests": 13,
+      "databaseOperations": 29,
+      "durationMs": 128,
+      "peakHeapIncreaseBytes": 4269368,
+      "result": {
+        "earnings": 0,
+        "reconciledEarnings": 0,
+        "orders": 10,
+        "statements": 1,
+        "transactions": 10,
+        "reconciled": 1,
+        "synchronizedAt": "2026-10-31T12:39:20.897Z",
+        "inventoryChanged": false
+      }
+    },
+    {
+      "name": "finance: optimized immediate repeat (short cache)",
+      "apiRequests": 3,
+      "databaseOperations": 18,
+      "durationMs": 56,
+      "peakHeapIncreaseBytes": 2994280,
+      "result": {
+        "earnings": 0,
+        "reconciledEarnings": 0,
+        "orders": 10,
+        "statements": 1,
+        "transactions": 10,
+        "reconciled": 1,
+        "synchronizedAt": "2026-10-31T12:39:21.033Z",
+        "inventoryChanged": false
+      }
+    },
+    {
+      "name": "metrics: previous history loaded into Node",
+      "apiRequests": 0,
+      "databaseOperations": 2,
+      "durationMs": 18,
+      "peakHeapIncreaseBytes": 9345176,
+      "result": [
+        {
+          "averageSettlementPrice": 80,
+          "settlementProfitMargin": 87.5,
+          "settledUnits": 10,
+          "settlementTransactionCount": 10
+        }
+      ]
+    },
+    {
+      "name": "metrics: optimized Mongo aggregation",
+      "apiRequests": 0,
+      "databaseOperations": 1,
+      "durationMs": 40,
+      "peakHeapIncreaseBytes": 213384,
+      "result": [
+        {
+          "averageSettlementPrice": 80,
+          "settlementProfitMargin": 87.5,
+          "settledUnits": 10,
+          "settlementTransactionCount": 10,
+          "settledRevenue": 1000,
+          "settledCapitalCost": 100,
+          "settledGrossProfit": 900,
+          "settledProfit": 700
+        }
+      ]
+    }
+  ]
+}

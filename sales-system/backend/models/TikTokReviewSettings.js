@@ -1,0 +1,3 @@
+import mongoose from "mongoose";
+const schema = new mongoose.Schema({ key: { type: String, default: "singleton", unique: true }, aiReplyGeneration: { type: Boolean, default: true }, autoGenerateHighRatings: { type: Boolean, default: false }, requireApprovalLowRatings: { type: Boolean, default: true }, language: { type: String, enum: ["tagalog", "taglish", "english"], default: "tagalog" }, tone: { type: String, enum: ["friendly", "professional", "casual", "warm"], default: "friendly" }, templates: { type: mongoose.Schema.Types.Mixed, default: {} }, automaticPublishingAvailable: { type: Boolean, default: false } }, { timestamps: true });
+export default mongoose.model("TikTokReviewSettings", schema);

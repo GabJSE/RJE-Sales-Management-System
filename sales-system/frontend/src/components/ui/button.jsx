@@ -2,13 +2,13 @@ import { cva } from "class-variance-authority";
 import { cn } from "../../lib/utils.js";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fc99c] disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--rje-accent)] disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
-        default: "bg-[#2f7547] text-white hover:bg-[#1f6136]",
-        outline: "border border-[#d5e2d8] bg-white text-[#2f7547] hover:bg-[#e8f4eb]",
-        ghost: "text-[#b7cfbc] hover:bg-white/10 hover:text-white",
+        default: "bg-[var(--rje-accent)] text-[var(--rje-on-accent)] hover:bg-[var(--rje-accent-hover)]",
+        outline: "border border-[var(--rje-line)] bg-[var(--rje-surface)] text-[var(--rje-accent-text)] hover:bg-[var(--rje-hover)]",
+        ghost: "text-[var(--rje-muted)] hover:bg-[var(--rje-hover)] hover:text-[var(--rje-ink)]",
       },
       size: {
         default: "h-10 px-4 py-2",

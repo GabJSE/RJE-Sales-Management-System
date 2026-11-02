@@ -13,6 +13,6 @@ export const request = async (url, options = {}) => {
     localStorage.removeItem("rje_auth_user");
     window.dispatchEvent(new Event("auth-expired"));
   }
-  if (!response.ok) throw new Error(data?.message || "The request could not be completed.");
+  if (!response.ok) throw Object.assign(new Error(data?.message || "The request could not be completed."), { fieldErrors: data?.errors, statusCode: response.status });
   return data;
 };

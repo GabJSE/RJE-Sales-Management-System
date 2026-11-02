@@ -1,3 +1,4 @@
+import { sensitiveLimit } from "../middleware/sensitiveLimit.js";
 import { Router } from "express";
 import { createUser, getUserById, listUsers, resetPassword, updateStatus, updateUser } from "../controllers/userController.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
@@ -9,5 +10,5 @@ router.get("/:id", getUserById);
 router.post("/", createUser);
 router.put("/:id", updateUser);
 router.patch("/:id/status", updateStatus);
-router.patch("/:id/reset-password", resetPassword);
+router.patch("/:id/reset-password", sensitiveLimit(), resetPassword);
 export default router;

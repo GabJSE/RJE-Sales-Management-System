@@ -10,4 +10,5 @@ const schema = new mongoose.Schema({
 }, { timestamps: true });
 schema.index({ shopId: 1, transactionId: 1 }, { unique: true });
 schema.index({ shopId: 1, transactionDate: -1 });
+schema.index({ shopId: 1, type: 1, reconciliationStatus: 1, transactionDate: 1 });
 export default mongoose.model("TikTokEarning", schema);

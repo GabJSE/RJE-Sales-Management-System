@@ -1,6 +1,6 @@
 # RJE Sales Management System
 
-A full-stack sales, inventory, and business management application developed for **RJE Motorparts & Accessories**, a motorcycle parts and accessories business in the Philippines.
+A TikTok Shop orders, listings, capital-cost, and settlement management application developed for **RJE Motorparts & Accessories**, a motorcycle parts and accessories business in the Philippines.
 
 The system is designed to simplify daily business operations by centralizing product management, sales transactions, inventory monitoring, financial calculations, reporting, and data management.
 
@@ -12,54 +12,39 @@ The RJE Sales Management System replaces manual spreadsheet-based tracking with 
 
 It enables the business to monitor sales performance, calculate profit, manage motorcycle parts inventory, and maintain organized transaction records.
 
-The system also supports multi-product transactions, allowing multiple products from a single customer order to be recorded under one transaction.
+TikTok supplies multi-product order and settlement records. Legacy manual sales forms, inventory mutations, APIs and reports have been retired; historical database records are preserved.
 
 ## Features
 
-### 1. Product Management
+### 1. TikTok Product Listings and Capital Costs
 
-* Add, view, edit, and delete products.
-* Manage product brand, model, SKU, and category.
-* Record capital and selling prices.
-* Monitor available stock.
-* Bulk product import using Excel or CSV templates.
+* Synchronize TikTok listings, variants, images, prices, and informational stock.
+* Manage variant capital cost history and historical order-cost snapshots.
+* Review reconciled product profitability where attribution is supported.
 
-### 2. Sales Management
+### 2. TikTok Orders
 
-* Record sales transactions.
-* Support multiple products within one transaction.
-* Manage product quantities.
-* Automatically calculate sales, capital, fees, and profit.
-* Track TikTok fees and withholding tax.
-* View transaction details and history.
-* Edit and delete transactions with inventory adjustments.
+* Synchronize orders and inspect product quantities and fulfillment status.
+* Preserve historical capital costs; order activity is separate from settlement income.
 
-### 3. Inventory Management
+### 3. Settlements & Profit
 
-* Automatic stock deduction after sales.
-* Stock restoration when transactions are canceled.
-* Manual stock-in and stock adjustments.
-* Inventory movement history.
-* Low-stock and out-of-stock monitoring.
+* Import actual TikTok finance statements, signed deductions, and adjustments.
+* Calculate confirmed settlement profit as actual settlement minus historical capital.
+* Keep missing costs and ambiguous allocations unconfirmed.
+* Track background sync jobs, retries, and full refreshes.
 
 ### 4. Dashboard
 
-* Total sales overview.
-* Total capital and expenses.
-* Net sales and profit.
-* Profit margin.
-* Sales trends.
-* Recent transactions.
-* Top-performing products.
-* Inventory status.
+* TikTok-only settlement revenue, confirmed profit and matching-population margin.
+* TikTok order counts, marketplace stock health, and settlement trends.
+* No combined physical-store or manual-sales totals.
 
 ### 5. Reports and Analytics
 
-* Daily, weekly, monthly, and yearly reports.
-* Custom date range filtering.
-* Product performance analysis.
-* Sales and profit summaries.
-* CSV export.
+* Filter PHP settlement statements by Manila business dates.
+* View daily settlements, reconciliation coverage, and confirmed profit.
+* Export TikTok settlements to CSV.
 
 ### 6. Authentication and User Management
 
@@ -78,7 +63,7 @@ The system also supports multi-product transactions, allowing multiple products 
 
 ### 8. Data Export and Backup
 
-* Export business records.
+* Export TikTok settlement statements.
 * Database backup functionality.
 * Backup history and management.
 
@@ -316,19 +301,19 @@ HTTPS origins in production and never commit a real `.env` file.
 
 ## Business Calculation Logic
 
-The system uses the following formulas for sales and profitability.
+Financial totals use signed integer minor units and actual TikTok settlement amounts.
 
-| Metric        | Formula                    |
-| ------------- | -------------------------- |
-| Total Sales   | Quantity × Selling Price   |
-| Total Capital | Quantity × Capital Price   |
-| Net Sales     | Total Sales − TikTok Fees  |
-| Profit        | Net Sales − Total Capital  |
-| Profit Margin | (Profit ÷ Net Sales) × 100 |
+| Metric | Definition |
+| --- | --- |
+| Settlement revenue | TikTok statement revenue, including reported discounts/refunds |
+| Net settlement | Actual TikTok statement settlement amount |
+| Product capital | Applicable historical unit costs multiplied by settled quantities |
+| Confirmed profit | Reconciled net settlement minus applicable historical capital |
+| Confirmed margin | Confirmed profit / net settlement of the same reconciled statements |
 
-For multi-product transactions, the system aggregates the values of all product line items.
+Fees, taxes, shipping and adjustments already deducted in settlement are not deducted twice. Missing costs and ambiguous allocations remain unconfirmed. Order activity is not realized settlement profit. External expenses and bank-payout verification are outside this contribution-profit calculation.
 
-Historical transactions preserve their recorded selling price and capital price snapshots to prevent changes in current product prices from altering past financial records.
+Historical snapshots and retired manual records remain stored. No collection deletion or destructive migration is required.
 
 ---
 
@@ -338,9 +323,10 @@ The application uses **MongoDB Atlas** as its cloud database.
 
 Database records include:
 
-* Products
-* Sales Transactions
-* Inventory Movements
+* TikTok orders, listings and variant capital-cost history
+* TikTok settlements, finance transactions and earnings
+* TikTok integration and synchronization metadata
+* Archived products, sales and inventory movements (preserved historical data)
 * User Accounts
 * System Settings
 * Backup Logs
@@ -376,11 +362,11 @@ For single-origin hosting, a reverse proxy may serve the frontend and forward
 
 The system is being developed and validated through the following phases:
 
-* Product Management
-* Sales Management
+* TikTok Product Listings and Capital Costs
+* TikTok Shop Orders and Settlement Synchronization
 * Reports
 * Dashboard
-* Inventory Management
+* TikTok Marketplace Stock Monitoring
 * Authentication and User Management
 * Business Settings
 * Data Export and Backup

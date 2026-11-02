@@ -27,7 +27,7 @@ export const listOrders = async (req, res, next) => { try {
 
 export const getOrder = async (req, res, next) => { try {
   const connected = await shop();
-  const order = await TikTokOrder.findOne({ shopId: connected?.shopId, orderId: req.params.orderId }).populate("lines.rjeProductId", "name sku").lean();
+  const order = await TikTokOrder.findOne({ shopId: connected?.shopId, orderId: req.params.orderId }).lean();
   if (!order) throw failure("TikTok order not found.", 404);
   res.json(order);
 } catch (error) { next(error); } };

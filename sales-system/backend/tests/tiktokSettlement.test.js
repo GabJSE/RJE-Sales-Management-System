@@ -14,3 +14,45 @@ test("explicit goods return reverses capital impact", () => { const ctx = contex
 test("zero-value order transaction does not require a capital snapshot", () => { const result = normalizeFinanceTransaction(row({ revenue_amount: "0", settlement_amount: "0" }), context({ order: { _id: "o", lines: [{ skuId: "sku-1" }] } })); assert.equal(result.capitalCostMinor, "0"); assert.equal(result.profitMinor, "0"); assert.equal(result.reconciliationStatus, "reconciled"); });
 test("missing historical cost remains unreconciled instead of zero", () => { const result = normalizeFinanceTransaction(row(), context({ order: { _id: "o", lines: [{ skuId: "sku-1", mappingStatus: "unmatched" }] } })); assert.equal(result.capitalCostMinor, undefined); assert.equal(result.profitMinor, undefined); assert.equal(result.reconciliationStatus, "awaiting_cost"); });
 test("statement adjustments require no product capital", () => { const result = normalizeFinanceTransaction(row({ type: "SHIPPING_FEE_ADJUSTMENT", order_id: undefined, revenue_amount: "0", settlement_amount: "-5" }), context({ order: null, orderFinance: null })); assert.equal(result.capitalCostMinor, "0"); assert.equal(result.profitMinor, "-500"); });
+
+for (const quantity of [1.5, -1, Infinity, "invalid"]) {
+  test(`invalid SKU quantity ${quantity} remains unknown without BigInt errors`, () => {
+    const ctx = context({ orderFinance: { sku_transactions: [{ sku_id: "sku-1", statement_id: "statement", quantity }] } });
+    const result = normalizeFinanceTransaction(row(), ctx);
+    assert.equal(result.capitalCostKnown, false); assert.equal(result.capitalCostMinor, undefined);
+  });
+}
+
+test("settlement profit subtracts capital once, without repeating fees, shipping or adjustments", () => {
+  const result = normalizeFinanceTransaction(row({ revenue_amount: "500", fee_tax_amount: "-30", shipping_cost_amount: "-20", adjustment_amount: "-5", settlement_amount: "445", fee_tax_breakdown: { tax: { pit_amount: "-5" } } }), context());
+  assert.equal(result.feeMinor, "-2500"); assert.equal(result.taxMinor, "-500");
+  assert.equal(result.profitMinor, "31945");
+});
+for (const value of [undefined, "invalid", "NaN", "1.234", Infinity]) {
+  test(`invalid required settlement amount ${value} cannot become confirmed zero`, () => {
+    assert.throws(() => normalizeFinanceTransaction(row({ settlement_amount: value }), context()), error => error.statusCode === 502);
+  });
+}
+
+test("same SKU on multiple order lines uses each historical cost for a complete quantity", () => {
+  const ctx = context({ order: { lines: [{ skuId: "sku-1", quantity: 1, capitalCostMinorSnapshot: "1000" }, { skuId: "sku-1", quantity: 2, capitalCostMinorSnapshot: "2000" }] }, orderFinance: { sku_transactions: [{ sku_id: "sku-1", statement_id: "statement", quantity: 3 }] } });
+  assert.equal(normalizeFinanceTransaction(row(), ctx).capitalCostMinor, "5000");
+  ctx.orderFinance.sku_transactions[0].quantity = 1;
+  assert.equal(normalizeFinanceTransaction(row(), ctx).capitalCostKnown, false);
+});
+
+test("order-linked adjustment requires no local order or product cost", () => {
+  const result = normalizeFinanceTransaction(row({ type: "SHIPPING_FEE_ADJUSTMENT", settlement_amount: "-5" }), context({ order: null, orderFinance: null }));
+  assert.equal(result.reconciliationStatus, "reconciled"); assert.equal(result.capitalCostMinor, "0"); assert.equal(result.profitMinor, "-500");
+});
+for (const [settlement, cost, profit] of [["0", 0, "0"], ["10", 20, "-1000"], ["20", 20, "0"], ["-5", 20, "-2500"]]) {
+  test(`signed settlement ${settlement} and capital ${cost} produce profit ${profit}`, () => {
+    const ctx = context(); ctx.order.lines[0].capitalCostSnapshot = cost;
+    assert.equal(normalizeFinanceTransaction(row({ settlement_amount: settlement }), ctx).profitMinor, profit);
+  });
+}
+
+test("mixed sale and refund SKU finance does not charge refund quantity as new capital", () => {
+  const ctx = context({ order: { lines: [{ skuId: "sku-1", capitalCostMinorSnapshot: "1000" }] }, orderFinance: { sku_transactions: [{ sku_id: "sku-1", statement_id: "statement", quantity: 2, revenue_amount: "100" }, { sku_id: "sku-1", statement_id: "statement", quantity: 1, revenue_amount: "-50" }] } });
+  assert.equal(normalizeFinanceTransaction(row({ revenue_amount: "50", settlement_amount: "40" }), ctx).capitalCostMinor, "2000");
+});
