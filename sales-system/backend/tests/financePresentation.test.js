@@ -68,3 +68,27 @@ test("table pagination follows global filtering/sorting and exports all matching
   assert.equal(second.rows.length, 7); assert.equal(financePage(selected, 99, 10).page, 2);
   assert.equal(financeCsv(selected, "statements", {from:"2026-11-01",to:"2026-11-01"}).split("\r\n").length, 18);
 });
+
+ test("withdrawal display and export exclude all other activity without changing amounts or source records", async () => {
+ const { withdrawalRows, withdrawalDestination } = await import("../../frontend/src/utils/financePresentation.js");
+ const rows = ["SETTLE", "WITHDRAW", "TRANSFER", "REVERSE", "UNKNOWN"].map((type, i) => ({ _id: String(i), transactionId: "374659904728390170" + i, type, amountMinor: "-12345", amount: -123.45, status: "SUCCESS" }));
+ const before = structuredClone(rows);
+ const selected = withdrawalRows(rows);
+ assert.deepEqual(selected, [rows[1]]); assert.equal(selected[0].amountMinor, "-12345");
+ const csv = financeCsv(rows, "withdrawals", { from: "2026-11-01", to: "2026-11-02" });
+ assert.equal(csv.split("\r\n").length, 2); assert.ok(csv.includes(rows[1].transactionId)); assert.ok(csv.includes("-123.45")); assert.ok(!csv.includes(rows[0].transactionId));
+ assert.equal(withdrawalDestination(rows[1]), "Not available"); assert.equal(withdrawalDestination({destination:"Bank ?1234"}), "Bank ?1234");
+ assert.deepEqual(rows, before);
+ });
+
+test("zero transaction toggle retains unknown, unconfirmed and nonzero financial amounts", async () => {
+ const { isZeroFinanceTransaction } = await import("../../frontend/src/utils/financePresentation.js");
+ const statement = { reconciliationStatus: "reconciled" };
+ const zero = { reconciliationStatus: "reconciled", settlement: 0, capitalCost: 0, profit: 0 };
+ assert.equal(isZeroFinanceTransaction(zero, statement), true);
+ for (const field of ["settlement", "capitalCost", "profit"]) {
+ for (const value of [null, undefined, "", 0.01, -0.01]) assert.equal(isZeroFinanceTransaction({...zero, [field]:value}, statement), false);
+ }
+ assert.equal(isZeroFinanceTransaction({...zero, reconciliationStatus:"awaiting_cost"}, statement), false);
+ assert.equal(isZeroFinanceTransaction(zero, {reconciliationStatus:"awaiting_transactions"}), false);
+});

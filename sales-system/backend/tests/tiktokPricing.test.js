@@ -3,8 +3,20 @@ import assert from "node:assert/strict";
 import { decimalMinor, fitPricingHistory, recommendTikTokPrice, validatePricingSettings, pricingDefaults } from "../services/tiktokPricingMath.js";
 import { pricingHistorySamples } from "../services/tiktokPricingService.js";
 const product = { _id:"v1", tiktokProductId:"p1", tiktokSkuId:"s1", currency:"PHP", price:"200.00", capitalCostMinor:"10000" };
-const manual = (cost, rate, prefs={}, overrides={}) => recommendTikTokPrice({...product,capitalCostMinor:cost}, {}, {pricingDeductionRate:rate,...prefs}, overrides);
+const manual = (cost, rate, prefs={}, overrides={}) => recommendTikTokPrice({...product,capitalCostMinor:cost}, {}, {pricingTargetMargin:25,pricingDeductionRate:rate,...prefs}, overrides);
 const samples = [10000n,20000n,30000n].map(grossMinor=>({grossMinor,settlementMinor:grossMinor*9n/10n-500n,units:1n}));
+
+test("same-price history recommends a twenty percent settlement margin using an explicit ratio estimate",()=>{
+  const history=fitPricingHistory([{grossMinor:10000n,settlementMinor:8000n,units:1n}]);
+  const result=recommendTikTokPrice({...product,capitalCostMinor:"8000"},history);
+  assert.equal(result.status,"ready");assert.equal(result.targetMargin,20);
+  assert.equal(result.source,"historical_ratio_estimate");
+  assert.equal(result.suggestedPrice,"125.00");assert.equal(result.estimatedMargin,20);
+  assert.match(result.warnings.join(" "),/actual deductions and profit/);
+  assert.doesNotThrow(()=>JSON.stringify(result));
+  const explicit=recommendTikTokPrice(product,history,{}, {useManual:true,deductionRate:10});
+  assert.equal(explicit.source,"manual_assumption");assert.equal(explicit.deductionPercent,10);
+});
 test("integer cents reject malformed or silently truncated monetary inputs",()=>{
   for(const input of ["",null,undefined,"1.001",-1,Infinity,"1e2",{},"NaN"])assert.throws(()=>decimalMinor(input));
   assert.equal(decimalMinor("0.01"),1n);assert.equal(decimalMinor("1000000000"),100000000000n);
@@ -27,9 +39,9 @@ test("price increments round up, never to nearest or down",()=>{
     assert.equal(decimalMinor(result.suggestedPrice)%decimalMinor(increment),0n);assert.ok(result.estimatedMargin>=25);
   }
 });
-test("target equal to minimum cannot produce exactly twenty percent",()=>{
-  const result=manual("8000",0,{pricingTargetMargin:20});assert.equal(result.suggestedPrice,"100.02");assert.ok(result.estimatedMargin>=20.01);
-  const higher=manual("6500",0,{pricingMinimumMargin:35,pricingTargetMargin:35});assert.ok(higher.estimatedMargin>=35.01);
+test("target equal to minimum permits exactly twenty percent",()=>{
+  const result=manual("8000",0,{pricingTargetMargin:20});assert.equal(result.suggestedPrice,"100.00");assert.equal(result.estimatedMargin,20);
+  const higher=manual("6500",0,{pricingMinimumMargin:35,pricingTargetMargin:35});assert.ok(higher.estimatedMargin>=35);
 });
 test("fixed fees, fixed and percentage seller discounts and external expenses apply exactly once",()=>{
   const result=manual("10000",10,{pricingOperatingExpense:5},{useManual:true,deductionRate:10,fixedCharge:3,discountFixed:2,discountPercent:20});
@@ -48,7 +60,7 @@ test("unavailable and impossible inputs do not fabricate suggested prices",()=>{
 });
 test("historical affine model identifies fixed charges instead of treating them as percentage fees",()=>{
   const history=fitPricingHistory(samples);assert.deepEqual(history.retention,{n:9n,d:10n});assert.equal(history.modeledFixedCharge,"5.00");assert.equal(history.effectiveDeductionPercent,12.5);
-  const result=recommendTikTokPrice(product,history);assert.equal(result.status,"ready");assert.equal(result.source,"historical_affine_estimate");assert.equal(result.suggestedPrice,"153.72");assert.equal(result.fixedCharge,"5.00");assert.ok(result.estimatedMargin>=25);
+  const result=recommendTikTokPrice(product,history,{pricingTargetMargin:25});assert.equal(result.status,"ready");assert.equal(result.source,"historical_affine_estimate");assert.equal(result.suggestedPrice,"153.72");assert.equal(result.fixedCharge,"5.00");assert.ok(result.estimatedMargin>=25);
 });
 test("insufficient prices, nonlinear promotions, subsidies and zero/negative settlement are rejected",()=>{
   assert.equal(fitPricingHistory(samples.slice(0,2)).retention,undefined);

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { uniqueOrderLines } from "./orderLineIdentity.js";
 import { syncWindow, lowerTimeFilter, nextSyncToken, distinctBy, ownedFieldsChanged, syncBulkWrite } from "./syncDataService.js";
 import { cachedFinance, financeCacheTtl, invalidateFinanceCache } from "./financeCacheService.js";
 import { reportSync, countSync } from "./syncTelemetry.js";
@@ -39,7 +40,7 @@ const signedCost = (order, finance, statementId, revenue) => {
   for (const sku of skuRows) {
     const skuRevenue = sku.revenue_amount == null ? revenue : financeMinor(sku.revenue_amount, "SKU revenue");
     if (skuRevenue === 0n) continue;
-    const lines = order.lines.filter(item => String(item.skuId) === String(sku.sku_id));
+    const lines = uniqueOrderLines(order.lines).filter(item => String(item.skuId) === String(sku.sku_id));
     const line = lines[0];
     const returnedQuantity = Number(sku.return_quantity || sku.returned_quantity || 0);
     const explicitlyReturned = returnedQuantity > 0 || sku.goods_returned === true || ["RETURNED", "RETURN_COMPLETED"].includes(String(sku.return_status || "").toUpperCase());

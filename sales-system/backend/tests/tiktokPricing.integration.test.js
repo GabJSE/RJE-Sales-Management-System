@@ -39,14 +39,14 @@ beforeEach(async()=>{
 async function api(path,method="GET",body,auth=token){const response=await fetch(base+path,{method,headers:{Authorization:`Bearer ${auth}`,"Content-Type":"application/json"},...(body?{body:JSON.stringify(body)}:{})});return{status:response.status,data:await response.json()};}
 test("real Mongo attribution and product endpoints return advisory SKU estimates without financial writes",async()=>{
   const before=await Promise.all([Order.find().lean(),Transaction.find().lean(),Settlement.find().lean(),Mapping.find().lean()]);
-  const result=await api(`/api/tiktok/products/${variant._id}/pricing`);assert.equal(result.status,200);assert.equal(result.data.suggestedPrice,"153.72");assert.equal(result.data.history.sampleCount,3);
-  const list=await api("/api/tiktok/products");assert.equal(list.status,200);assert.equal(list.data.products[0].pricing.suggestedPrice,"153.72");assert.equal(list.data.products[0].capitalCost,100);
-  const adjusted=await api(`/api/tiktok/products/${variant._id}/pricing?targetMargin=40`);assert.ok(Number(adjusted.data.suggestedPrice)>153.72);
+  const result=await api(`/api/tiktok/products/${variant._id}/pricing`);assert.equal(result.status,200);assert.equal(result.data.suggestedPrice,"144.45");assert.equal(result.data.history.sampleCount,3);
+  const list=await api("/api/tiktok/products");assert.equal(list.status,200);assert.equal(list.data.products[0].pricing.suggestedPrice,"144.45");assert.equal(list.data.products[0].capitalCost,100);
+  const adjusted=await api(`/api/tiktok/products/${variant._id}/pricing?targetMargin=40`);assert.ok(Number(adjusted.data.suggestedPrice)>144.45);
   const after=await Promise.all([Order.find().lean(),Transaction.find().lean(),Settlement.find().lean(),Mapping.find().lean()]);assert.deepEqual(after,before);
 });
 test("historical corrections, duplicate credits and mismatched statements cannot feed recommendations",async()=>{
   await Transaction.updateOne({transactionId:"txn-0"},{$set:{isCurrent:false}});
-  assert.equal((await api(`/api/tiktok/products/${variant._id}/pricing`)).data.status,"insufficient_data");
+  assert.equal((await api(`/api/tiktok/products/${variant._id}/pricing`)).data.source,"historical_ratio_estimate");
   await Transaction.updateOne({transactionId:"txn-0"},{$set:{isCurrent:true}});
   await Transaction.create({shopId:"shop",transactionId:"adjustment",statementId:"statement",tiktokOrderId:"order-0",transactionType:"ADJUSTMENT",reconciliationStatus:"reconciled"});
   assert.equal((await api(`/api/tiktok/products/${variant._id}/pricing`)).data.history.sampleCount,2);
@@ -62,7 +62,7 @@ test("pricing preferences validate and persist together while staff can only rea
   assert.equal((await api("/api/settings/pricing","PUT",prefs,staffToken)).status,403);
   assert.equal((await api(`/api/tiktok/products/${variant._id}/pricing?useManual=true&deductionRate=15&fixedCharge=2&discountPercent=5&discountFixed=1`,"GET",null,staffToken)).data.source,"manual_assumption");
   await Transaction.updateMany({},{$set:{isCurrent:false}});
-  const fallback=await api(`/api/tiktok/products/${variant._id}/pricing`);assert.equal(fallback.data.source,"manual_assumption");assert.equal(fallback.data.targetMargin,30);assert.equal(fallback.data.operatingExpense,"3.50");
+  const fallback=await api(`/api/tiktok/products/${variant._id}/pricing`);assert.equal(fallback.data.source,"manual_assumption");assert.equal(fallback.data.targetMargin,20);assert.equal(fallback.data.operatingExpense,"3.50");
   assert.equal((await Settings.findOne()).pricingDeductionRate,12);
 });
 test("variant isolation, unknown IDs, invalid queries and no-capital states are explicit",async()=>{

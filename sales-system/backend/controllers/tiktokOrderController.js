@@ -11,10 +11,11 @@ const shop = () => TikTokShop.findOne({ key: "singleton" }).lean();
 
 export const listOrders = async (req, res, next) => { try {
   const connected = await shop();
-  if (!connected?.shopId) return res.json({ orders: [], total: 0, page: 1, pages: 1, lastSyncedAt: null });
+  if (!connected?.shopId) return res.json({ orders: [], total: 0, page: 1, pages: 1, statuses: [], lastSyncedAt: null });
   const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1); const limit = 25;
   const filter = { shopId: connected.shopId };
-  if (req.query.status) filter.status = String(req.query.status).slice(0, 50);
+  if (req.query.deliveryOutcome === "failed") filter.status = { $regex: "^(?:(?:DELIVERY|DELIVER|SHIPMENT|SHIPPING)[_ -](?:FAILED|FAILURE|UNSUCCESSFUL)|(?:FAILED|UNSUCCESSFUL)[_ -](?:DELIVERY|DELIVER|SHIPMENT|SHIPPING)|UNDELIVERABLE|UNDELIVERED)$", $options: "i" };
+  else if (req.query.status) filter.status = String(req.query.status).slice(0, 50);
   if (dateOnly(req.query.from) || dateOnly(req.query.to)) filter.createdAtTikTok = { ...(dateOnly(req.query.from) ? { $gte: new Date(`${req.query.from}T00:00:00+08:00`) } : {}), ...(dateOnly(req.query.to) ? { $lte: new Date(`${req.query.to}T23:59:59.999+08:00`) } : {}) };
   const search = escape(req.query.search);
   if (search) filter.$or = [{ orderId: { $regex: search, $options: "i" } }, { "lines.sellerSku": { $regex: search, $options: "i" } }, { "lines.productName": { $regex: search, $options: "i" } }];

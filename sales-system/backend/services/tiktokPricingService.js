@@ -40,5 +40,5 @@ export async function pricingHistories(shopId, products) {
 }
 export async function productPricing(shopId, products, settings, overrides={}) {
   const histories=await pricingHistories(shopId,products.filter(product=>product.capitalCostMinor!=null && product.currency==="PHP"));
-  return new Map(products.map(product=>[String(product._id),recommendTikTokPrice(product,histories.get(String(product._id)),settings,overrides)]));
+  return new Map(products.map(product=>[String(product._id),recommendTikTokPrice(product,histories.get(String(product._id)),settings,{...overrides,targetMargin:overrides.targetMargin ?? 20})]));
 }

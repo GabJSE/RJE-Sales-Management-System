@@ -15,7 +15,7 @@ const systemSettingsSchema = new mongoose.Schema(
     lowStockThreshold: { type: Number, min: 0, max: 100000, default: 5 },
     enableLowStockAlerts: { type: Boolean, default: true },
     pricingMinimumMargin: { type: Number, min: 20, max: 99, default: 20 },
-    pricingTargetMargin: { type: Number, min: 20, max: 99.99, default: 25 },
+    pricingTargetMargin: { type: Number, min: 20, max: 99.99, default: 20 },
     pricingDeductionRate: { type: Number, min: 0, max: 99.99, default: null },
     pricingRoundingIncrement: { type: Number, min: 0.01, max: 1000000000, default: 0.01 },
     pricingOperatingExpense: { type: Number, min: 0, max: 1000000000, default: 0 },

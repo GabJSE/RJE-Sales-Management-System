@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { uniqueOrderLines } from "./orderLineIdentity.js";
 import { syncWindow, lowerTimeFilter, nextSyncToken, distinctBy, ownedFieldsChanged, syncBulkWrite } from "./syncDataService.js";
 import { reportSync } from "./syncTelemetry.js";
 import TikTokShop from "../models/TikTokShop.js";
@@ -28,7 +29,7 @@ export function normalizeTikTokOrder(order, variantRows = [], costRows = [], exi
   const bySkuId = new Map(variantRows.map(row => [String(row.tiktokSkuId), row]));
   const costsByVariant = new Map(); for (const row of costRows) { const key = `${row.tiktokProductId}:${row.tiktokSkuId}`; costsByVariant.set(key, [...(costsByVariant.get(key) || []), row]); }
   const previousLines = new Map((existing?.lines || []).map(line => [String(line.lineItemId || line.skuId), line]));
-  const lines = (order.line_items || []).map(line => {
+  const lines = uniqueOrderLines(order.line_items || [], "id").map(line => {
     const variant = bySkuId.get(String(line.sku_id || "")); const orderDate = utc(order.create_time) || now;
     const history = costsByVariant.get(`${String(line.product_id || variant?.tiktokProductId || "")}:${String(line.sku_id || "")}`) || [];
     const applicableCost = history.filter(row => new Date(row.effectiveFrom) <= orderDate && (!row.effectiveTo || new Date(row.effectiveTo) > orderDate)).sort((a, b) => new Date(b.effectiveFrom) - new Date(a.effectiveFrom))[0];

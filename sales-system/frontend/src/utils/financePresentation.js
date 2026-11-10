@@ -29,7 +29,7 @@ export function syncPresentation(jobs = [], lastSuccessful) {
 }
 export function filteredFinanceRows(rows, kind, search = "", sort = "date_desc") {
   const query = search.trim().toLowerCase();
-  const filtered = rows.filter(row => !query || [row.transactionId, row.statementId, transactionLabel(row.type), reconciliationLabel(row.reconciliationStatus), paymentLabel(kind === "earnings" ? row.status : row.sourceTotals?.paymentStatus)].filter(Boolean).join(" ").toLowerCase().includes(query));
+  const filtered = rows.filter(row => !query || [row.transactionId, row.statementId, withdrawalDestination(row), transactionLabel(row.type), reconciliationLabel(row.reconciliationStatus), paymentLabel(kind === "earnings" ? row.status : row.sourceTotals?.paymentStatus)].filter(Boolean).join(" ").toLowerCase().includes(query));
   const [key, direction] = sort.split("_"); const sign = direction === "asc" ? 1 : -1;
   const value = row => key === "date" ? new Date(kind === "earnings" ? row.transactionDate : row.settlementDate).getTime() : key === "amount" ? BigInt((kind === "earnings" ? row.amountMinor : row.netSettlementMinor) || 0) : key === "profit" ? row.reconciliationStatus === "reconciled" && row.calculatedProfitMinor != null ? BigInt(row.calculatedProfitMinor) : null : key === "orders" ? row.orderCount || 0 : transactionLabel(row.type);
   return filtered.sort((a, b) => { const av = value(a); const bv = value(b); return av == null ? bv == null ? 0 : 1 : bv == null ? -1 : sign * (av < bv ? -1 : av > bv ? 1 : 0) || String(a._id).localeCompare(String(b._id)); });
@@ -39,8 +39,15 @@ export function financePage(rows, requestedPage, pageSize) {
   return { page, pages, rows: rows.slice((page - 1) * pageSize, page * pageSize) };
 }
 export function financeCsv(rows, kind, range) {
-  const headers = kind === "earnings" ? ["Date (Manila)", "Transaction ID", "Transaction", "Amount (PHP)", "Processing status", "Reconciliation", "Selected from", "Selected to"] : ["Date (Manila)", "Statement ID", "Orders", "Settlement revenue (PHP)", "Fees (PHP)", "Tax (PHP)", "Net settlement (PHP)", "Known capital (PHP)", "Confirmed profit (PHP)", "Reconciliation", "Payment status", "Selected from", "Selected to"];
-  const data = rows.map(row => kind === "earnings" ? [financeDate(row.transactionDate), row.transactionId, transactionLabel(row.type), row.amount, paymentLabel(row.status), reconciliationLabel(row.reconciliationStatus), range.from, range.to] : [financeDate(row.settlementDate), row.statementId, row.orderCount, row.totalRevenue, row.totalFees, row.totalTaxes, row.netSettlement, row.totalCapitalCost, row.reconciliationStatus === "reconciled" ? row.calculatedProfit ?? "Unconfirmed" : "Unconfirmed", reconciliationLabel(row.reconciliationStatus), paymentLabel(row.sourceTotals?.paymentStatus), range.from, range.to]);
+  const headers = kind === "withdrawals" ? ["Date (Manila)", "Transaction ID", "Withdrawal amount (PHP)", "Status", "Destination", "Selected from", "Selected to"] : kind === "earnings" ? ["Date (Manila)", "Transaction ID", "Transaction", "Amount (PHP)", "Processing status", "Reconciliation", "Selected from", "Selected to"] : ["Date (Manila)", "Statement ID", "Orders", "Settlement revenue (PHP)", "Fees (PHP)", "Tax (PHP)", "Net settlement (PHP)", "Known capital (PHP)", "Confirmed profit (PHP)", "Reconciliation", "Payment status", "Selected from", "Selected to"];
+  const data = (kind === "withdrawals" ? withdrawalRows(rows) : rows).map(row => kind === "withdrawals" ? [financeDate(row.transactionDate), row.transactionId, row.amount, paymentLabel(row.status), withdrawalDestination(row), range.from, range.to] : kind === "earnings" ? [financeDate(row.transactionDate), row.transactionId, transactionLabel(row.type), row.amount, paymentLabel(row.status), reconciliationLabel(row.reconciliationStatus), range.from, range.to] : [financeDate(row.settlementDate), row.statementId, row.orderCount, row.totalRevenue, row.totalFees, row.totalTaxes, row.netSettlement, row.totalCapitalCost, row.reconciliationStatus === "reconciled" ? row.calculatedProfit ?? "Unconfirmed" : "Unconfirmed", reconciliationLabel(row.reconciliationStatus), paymentLabel(row.sourceTotals?.paymentStatus), range.from, range.to]);
   const cell = value => `"${String(value ?? "").replaceAll('"', '""')}"`;
   return [headers, ...data].map(row => row.map(cell).join(",")).join("\r\n");
 }
+
+// Explicit API type: transfers and reversals are not payouts. Source records remain intact.
+export const withdrawalRows = rows => rows.filter(row => row.type === "WITHDRAW");
+export const withdrawalDestination = row => typeof row.destination === "string" && row.destination.trim() ? row.destination : "Not available";
+
+// Only hide confirmed zeros; missing amounts and unconfirmed profit stay visible.
+export const isZeroFinanceTransaction = (transaction, statement) => transaction.reconciliationStatus === "reconciled" && statement?.reconciliationStatus === "reconciled" && [transaction.settlement, transaction.capitalCost, transaction.profit].every(value => value != null && value !== "" && Number(value) === 0);
