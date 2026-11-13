@@ -4,3 +4,7 @@
 /sales-system/frontend/.audit-build/
 /sales-system/frontend/test-results/
 /sales-system/frontend/playwright-report/
+# Local runtime secrets (examples must contain placeholders only).
+.env
+.env.*
+!.env.example
